@@ -1,4 +1,3 @@
-# python
 import arcade
 from typing import Optional
 
@@ -10,8 +9,10 @@ from game.renderer import RayCastRenderer
 
 class CourierGame(arcade.Window):
     def __init__(self, app_config: dict):
-        # Keep JSON config separate from Arcade's own display config
         self.app_config = app_config
+        self.frame_times = []
+        self.performance_counter = 0
+
 
         display = app_config.get("display", {})
         super().__init__(
@@ -20,6 +21,8 @@ class CourierGame(arcade.Window):
             title=display.get("title", "Courier Quest"),
             resizable=display.get("resizable", False),
         )
+
+        self.background_color = arcade.color.SKY_BLUE
 
         # Core members
         self.api_client: Optional[APIClient] = None
@@ -33,67 +36,67 @@ class CourierGame(arcade.Window):
         self._turn_left = False
         self._turn_right = False
 
-        # HUD (cached text objects)
+        # HUD (create after Window init so height/ctx exist)
         self.hud_fps = arcade.Text("", 10, self.height - 20, arcade.color.WHITE, 12)
         self.hud_stats = arcade.Text("", 10, self.height - 40, arcade.color.WHITE, 12)
+        self.hud_performance = arcade.Text("", 10, self.height - 60, arcade.color.YELLOW, 10)
 
-        # Optional: target update rate
+        # Target update rate
         self.set_update_rate(1 / 60)
 
     def setup(self):
-        # API client with optional cache directory override
         api_conf = dict(self.app_config.get("api", {}))
         files_conf = self.app_config.get("files", {})
         if files_conf.get("cache_directory"):
             api_conf["cache_directory"] = files_conf["cache_directory"]
         self.api_client = APIClient(api_conf)
 
-        # Load city/map
         self.city = CityMap(self.api_client, self.app_config)
         self.city.load_map()
 
-        # Spawn player
         sx, sy = self.city.get_spawn_position()
         self.player = Player(sx, sy, self.app_config.get("player", {}))
 
-        # Renderer
         self.renderer = RayCastRenderer(self.city, self.app_config)
 
     def on_draw(self):
-        # Never call arcade.start_render(); use clear() per frame
         self.clear()
 
         if self.renderer and self.player:
-            # Weather system not implemented yet, pass None
             self.renderer.render_world(self.player, weather_system=None)
             self.renderer.render_minimap(10, 10, 160, self.player)
 
-        # Update HUD texts
         earnings = self.player.earnings if self.player else 0.0
         stamina = self.player.stamina if self.player else 0.0
         reputation = self.player.reputation if self.player else 0.0
 
-
-
-
-
-
+        if self.frame_times:
+            dt_list = self.frame_times[-60:]
+            avg_dt = (sum(dt_list) / len(dt_list)) if dt_list else 0.0
+            avg_fps = (1.0 / avg_dt) if avg_dt > 0 else 0.0
+            self.hud_performance.position = (10, self.height - 60)
+            rays = self.renderer.num_rays if self.renderer else 0
+            self.hud_performance.text = f"FPS: {avg_fps:.1f} | Rays: {rays}"
+            self.hud_performance.draw()
 
         self.hud_stats.position = (10, self.height - 40)
         self.hud_stats.text = f"$ {earnings:.0f} | stamina: {stamina:.0f} | rep: {reputation:.0f}"
         self.hud_stats.draw()
 
     def on_update(self, delta_time: float):
+        # Track frame times for FPS
+        self.frame_times.append(delta_time)
+        if len(self.frame_times) > 240:
+            self.frame_times.pop(0)
+
         if not self.player or not self.city:
             return
 
-        # Turning
         if self._turn_left:
             self.player.turn_left(delta_time)
         if self._turn_right:
             self.player.turn_right(delta_time)
 
-        # Movement (forward/back along facing direction)
         dx = dy = 0.0
         if self._move_forward or self._move_backward:
             fx, fy = self.player.get_forward_vector()
@@ -107,7 +110,6 @@ class CourierGame(arcade.Window):
         if dx != 0.0 or dy != 0.0:
             self.player.move(dx, dy, delta_time, self.city)
 
-        # Update stamina/effects
         self.player.update(delta_time)
 
     def on_key_press(self, symbol: int, modifiers: int):
@@ -134,6 +136,6 @@ class CourierGame(arcade.Window):
 
     def on_resize(self, width: int, height: int):
         super().on_resize(width, height)
-        # Keep HUD alignment
         self.hud_fps.position = (10, height - 20)
         self.hud_stats.position = (10, height - 40)
+        self.hud_performance.position = (10, height - 60)

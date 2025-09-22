@@ -1,136 +1,81 @@
-import arcade
+# python
 import math
-from typing import Dict, Any, Tuple, Optional
+from pathlib import Path
+from typing import Any, Tuple, Optional
 
-from .utils import clamp
+import arcade
+from game.city import CityMap
 
 
 class RayCastRenderer:
-    def __init__(self, city_map, config: Dict[str, Any]):
-        self.city = city_map
-        self.config = config
+    def __init__(self, city: CityMap, app_config: dict):
+        self.city = city
 
-        # Rendering config
-        render_config = config.get("rendering", {})
-        self.fov = render_config.get("fov", math.pi / 3)  # ~60 deg
-        self.num_rays = render_config.get("num_rays", 160)
-        self.floor_row_step = int(render_config.get("floor_row_step", 1))
-        self.max_view_distance = float(render_config.get("maxViewDistance", 64.0))
+        rendering = app_config.get("rendering", {}) or {}
+        colors = app_config.get("colors", {}) or {}
+        textures = app_config.get("textures", {}) or {}
 
-        # Display config
-        display_config = config.get("display", {})
-        self.screen_width = display_config.get("width", 800)
-        self.screen_height = display_config.get("height", 600)
+        # Rendering params
+        self.fov: float = float(rendering.get("fov", math.pi / 3))
+        self.num_rays: int = int(rendering.get("num_rays", 160))
+        self.floor_row_step: int = int(rendering.get("floor_row_step", 2))
 
         # Colors
-        colors = config.get("colors", {})
+        self.col_street: Tuple[int, int, int] = tuple(colors.get("street", (105, 105, 105)))
+        self.col_building: Tuple[int, int, int] = tuple(colors.get("building", (0, 0, 0)))
+        self.col_park: Tuple[int, int, int] = tuple(colors.get("park", (144, 238, 144)))
+        self.col_player: Tuple[int, int, int] = tuple(colors.get("player", (255, 255, 0)))
+        self.col_sky: Tuple[int, int, int] = arcade.color.SKY_BLUE
+
+        # Optional textures
+        def _load_tex(p: Optional[str]):
+            if not p:
+                return None
+            try:
+                return arcade.load_texture(p)
+            except Exception:
+                return None
+
         self.color_map = {
-            "C": tuple(colors.get("street", [105, 105, 105])),
-            "B": tuple(colors.get("building", [0, 0, 0])),
-            "P": tuple(colors.get("park", [144, 238, 144])),
-            "player": tuple(colors.get("player", [255, 255, 0])),
-            "pickup": tuple(colors.get("pickup", [0, 255, 0])),
-            "dropoff": tuple(colors.get("dropoff", [255, 0, 0])),
+            "C": tuple(app_config.get("colors", {}).get("street", (105, 105, 105))),
+            "B": tuple(app_config.get("colors", {}).get("building", (198, 134, 110))),
+            "P": tuple(app_config.get("colors", {}).get("park", (144, 238, 144))),
+            "player": tuple(app_config.get("colors", {}).get("player", (255, 255, 0))),
         }
-
-        # Cached values independent of ray count
-        self.horizon = self.screen_height // 2
-        self.pos_z = self.screen_height / 2  # camera plane height
-
-        arcade.set_background_color(arcade.color.SKY_BLUE)
-
-        # Minimap cache (Arcade 3.2.2 API via arcade.shape_list)
-        self._minimap_shapes: Optional[Any] = None
+        self._minimap_shapes: Optional[arcade.shape_list.ShapeElementList] = None
         self._minimap_cache_key: Optional[Tuple] = None
 
-    def render_world(self, player, weather_system=None):
-        if not self.city or not getattr(self.city, "tiles", None):
-            return
+        self.tex_sky: Optional[arcade.Texture] = _load_tex(textures.get("sky"))
+        self.tex_wall: Optional[arcade.Texture] = _load_tex(textures.get("wall"))
 
-        # Recompute so changing num_rays at runtime works
-        self.num_rays = max(1, int(self.num_rays))
-        column_width = self.screen_width / self.num_rays
+    def _get_player(self, player: Any) -> Tuple[float, float, float]:
+        px = getattr(player, "x", None)
+        py = getattr(player, "y", None)
+        if (px is None or py is None) and hasattr(player, "position"):
+            try:
+                px, py = player.position
+            except Exception:
+                px, py = 0.0, 0.0
+        if px is None or py is None:
+            px, py = 0.0, 0.0
 
-        visibility = weather_system.get_visibility_multiplier() if weather_system else 1.0
+        ang = getattr(player, "angle", None)
+        if ang is None and hasattr(player, "get_forward_vector"):
+            try:
+                fx, fy = player.get_forward_vector()
+                ang = math.atan2(fy, fx)
+            except Exception:
+                ang = 0.0
+        if ang is None:
+            ang = 0.0
+        return float(px), float(py), float(ang)
 
-        for ray in range(self.num_rays):
-            self._render_column(ray, player, visibility, column_width)
-
-    def _render_column(self, ray_index: int, player, visibility: float, column_width: float):
-        # Center rays inside their column
-        ray_angle = player.angle - self.fov * 0.5 + ((ray_index + 0.5) / self.num_rays) * self.fov
-        dir_x = math.cos(ray_angle)
-        dir_y = math.sin(ray_angle)
-
-        # Pixel column bounds
-        left = int(ray_index * column_width)
-        right = int((ray_index + 1) * column_width)
-        if right <= left:
-            right = left + 1
-
-        # Clamp work to the map AABB
-        exit_dist = self._ray_exit_distance(player.x, player.y, dir_x, dir_y)
-        ray_max_dist = min(self.max_view_distance, exit_dist)
-
-        # 1) Cast to wall with DDA (bounded)
-        wall_distance, wall_side = self._cast_wall_ray(player.x, player.y, dir_x, dir_y, ray_max_dist)
-
-        # 2) Draw wall slice (if any)
-        floor_limit_y = self.horizon  # if no wall, limit is horizon
-        if wall_distance is not None:
-            floor_limit_y = self._render_wall_slice(left, right, wall_distance, wall_side, visibility)
-
-        # 3) Floor slice via cell-DDA (bounded)
-        self._render_floor_slice(left, right, floor_limit_y, player, dir_x, dir_y, visibility, ray_max_dist)
-
-    def _ray_exit_distance(self, px: float, py: float, dx: float, dy: float) -> float:
-        """
-        Forward distance along the ray until it exits the map AABB.
-        Prevents rays/floor from marching 'to infinity' outside the map.
-        """
-        w, h = self.city.width, self.city.height
-
-        # Distances to vertical boundaries
-        if dx > 0.0:
-            tx = (w - px) / dx
-        elif dx < 0.0:
-            tx = (0.0 - px) / dx
-        else:
-            tx = float("inf")
-
-        # Distances to horizontal boundaries
-        if dy > 0.0:
-            ty = (h - py) / dy
-        elif dy < 0.0:
-            ty = (0.0 - py) / dy
-        else:
-            ty = float("inf")
-
-        exit_d = min(tx if tx > 0 else float("inf"), ty if ty > 0 else float("inf"))
-        if not math.isfinite(exit_d):
-            return self.max_view_distance
-        return max(1e-6, exit_d)
-
-    def _cast_wall_ray(
-        self,
-        start_x: float,
-        start_y: float,
-        dir_x: float,
-        dir_y: float,
-        max_dist: Optional[float] = None,
-    ) -> Tuple[Optional[float], Optional[int]]:
-        pos_x, pos_y = start_x, start_y
+    def _cast_wall_dda(self, pos_x: float, pos_y: float, dir_x: float, dir_y: float):
         map_x, map_y = int(pos_x), int(pos_y)
 
-        width = self.city.width
-        height = self.city.height
-        tiles = self.city.tiles
+        delta_dist_x = 1e30 if dir_x == 0.0 else abs(1.0 / dir_x)
+        delta_dist_y = 1e30 if dir_y == 0.0 else abs(1.0 / dir_y)
 
-        # Ray unit step distances
-        delta_dist_x = abs(1.0 / dir_x) if dir_x != 0.0 else 1e30
-        delta_dist_y = abs(1.0 / dir_y) if dir_y != 0.0 else 1e30
-
-        # Step direction and initial side distances
         if dir_x < 0:
             step_x = -1
             side_dist_x = (pos_x - map_x) * delta_dist_x
@@ -145,19 +90,8 @@ class RayCastRenderer:
             step_y = 1
             side_dist_y = (map_y + 1.0 - pos_y) * delta_dist_y
 
-        side = 0  # 0 = vertical, 1 = horizontal
-        # A ray can cross at most width+height grid lines inside the box
-        max_steps = self.city.width + self.city.height + 2
-        steps = 0
-
-        while 0 <= map_x < width and 0 <= map_y < height and steps < max_steps:
-            steps += 1
-
-            # Early-out by next boundary distance
-            next_boundary_dist = side_dist_x if side_dist_x < side_dist_y else side_dist_y
-            if max_dist is not None and next_boundary_dist > max_dist:
-                break
-
+        side = 0  # 0 = vertical side, 1 = horizontal side
+        while 0 <= map_x < self.city.width and 0 <= map_y < self.city.height:
             if side_dist_x < side_dist_y:
                 side_dist_x += delta_dist_x
                 map_x += step_x
@@ -167,194 +101,119 @@ class RayCastRenderer:
                 map_y += step_y
                 side = 1
 
-            if not (0 <= map_x < width and 0 <= map_y < height):
+            if not (0 <= map_x < self.city.width and 0 <= map_y < self.city.height):
                 break
 
-            if tiles[map_y][map_x] == "B":
-                # Perpendicular distance (avoid fish-eye)
+            if self.city.tiles[map_y][map_x] == "B":
                 if side == 0:
-                    denom = dir_x if dir_x != 0 else 1e-6
-                    dist = (map_x - pos_x + (1 - step_x) * 0.5) / denom
+                    denom = dir_x if dir_x != 0.0 else 1e-6
+                    dist = (map_x - pos_x + (1 - step_x) / 2) / denom
                 else:
-                    denom = dir_y if dir_y != 0 else 1e-6
-                    dist = (map_y - pos_y + (1 - step_y) * 0.5) / denom
-                if max_dist is not None and dist > max_dist:
-                    break
-                return max(dist, 1e-6), side
-
+                    denom = dir_y if dir_y != 0.0 else 1e-6
+                    dist = (map_y - pos_y + (1 - step_y) / 2) / denom
+                if dist <= 0:
+                    dist = 0.0001
+                return dist, side
         return None, None
 
-    def _render_wall_slice(self, left: int, right: int, distance: float, side: int, visibility: float) -> int:
-        # Compute wall size
-        safe_dist = max(distance, 1e-6)
-        wall_height = int(self.screen_height / safe_dist)
-        half_height = wall_height // 2
+    def _floor_color_for(self, mx: int, my: int) -> Tuple[int, int, int]:
+        t = self.city.get_tile_at(mx, my)
+        if t == "P":
+            return self.col_park
+        return self.col_street
 
-        # Screen-space slice
-        draw_bottom = max(0, int(self.horizon - half_height))                   # lower y
-        draw_top = min(self.screen_height, int(self.horizon + half_height))     # higher y
-
-        # Shade by side/depth/visibility (stable, not per-row)
-        base = self.color_map["B"]
-        depth_factor = 1.0 / (1.0 + safe_dist * 0.10)
-        side_factor = 0.85 if side == 1 else 1.0
-        visibility_factor = clamp(visibility, 0.3, 1.0)
-        total = clamp(depth_factor * side_factor * visibility_factor, 0.2, 1.0)
-        wall_color = (int(base[0] * total), int(base[1] * total), int(base[2] * total))
-
-        arcade.draw_lrbt_rectangle_filled(left, right, draw_bottom, draw_top, wall_color)
-        return draw_bottom
-
-    def _render_floor_slice(
-        self,
-        left: int,
-        right: int,
-        floor_limit_y: int,
-        player,
-        dir_x: float,
-        dir_y: float,
-        visibility: float,
-        max_dist: float,
-    ):
-        # Render floor by sweeping cells (DDA)
-        horizon = self.horizon
-        if floor_limit_y <= 0 or horizon <= 0:
+    def render_world(self, player: Any, weather_system: Any = None):
+        win = arcade.get_window()
+        if not win:
             return
 
-        y_limit = min(horizon - 1, int(floor_limit_y))
-        if y_limit <= 0:
-            return
+        width = win.width
+        height = win.height
+        horizon = height // 2
+        posZ = height / 2.0
 
-        px = player.x
-        py = player.y
-        pos_z = self.pos_z
+        # Draw sky (top half). Texture if available, else sky color shows via background.
+        if self.tex_sky:
+            cx = width * 0.5
+            cy = height - (horizon * 0.5)
+            arcade.draw_texture_rect(self.tex_sky, arcade.XYWH(cx, cy, width, horizon))
 
-        width = self.city.width
-        height = self.city.height
-        tiles = self.city.tiles
-        col_street = self.color_map["C"]
-        col_park = self.color_map["P"]
+        px, py, pang = self._get_player(player)
+        column_width_f = width / float(self.num_rays)
 
-        levels = 32
-        att = 0.05
-        clamp_vis = clamp(visibility, 0.2, 1.0)
-        step_y_quant = max(1, int(self.floor_row_step))
+        for ray in range(self.num_rays):
+            # Ray dir
+            ray_angle = pang - self.fov / 2.0 + (ray / float(self.num_rays)) * self.fov
+            dir_x = math.cos(ray_angle)
+            dir_y = math.sin(ray_angle)
 
-        map_x = int(px)
-        map_y = int(py)
-        delta_x = abs(1.0 / dir_x) if dir_x != 0.0 else 1e30
-        delta_y = abs(1.0 / dir_y) if dir_y != 0.0 else 1e30
+            # Column bounds
+            left = int(ray * column_width_f)
+            right = int((ray + 1) * column_width_f)
+            if right <= left:
+                right = left + 1
 
-        if dir_x < 0:
-            step_x = -1
-            side_dist_x = (px - map_x) * delta_x
-        else:
-            step_x = 1
-            side_dist_x = (map_x + 1.0 - px) * delta_x
+            dist, side = self._cast_wall_dda(px, py, dir_x, dir_y)
 
-        if dir_y < 0:
-            step_y = -1
-            side_dist_y = (py - map_y) * delta_y
-        else:
-            step_y = 1
-            side_dist_y = (map_y + 1.0 - py) * delta_y
+            wall_bottom = 0
+            if dist is not None:
+                slice_h = int(height / max(dist, 1e-4))
+                half = slice_h // 2
+                bottom = max(0, horizon - half)
+                top = min(height, horizon + half)
+                cx = (left + right) * 0.5
+                cy = (bottom + top) * 0.5
+                w = max(1, right - left)
+                h = max(1, top - bottom)
 
-        # Start distance at the bottom scanline
-        d_prev = max(1e-6, pos_z / max(1.0, float(horizon)))  # ~1.0
-
-        def y_from_dist(d: float) -> int:
-            return int(horizon - (pos_z / max(d, 1e-6)))
-
-        draw_rect = arcade.draw_lrbt_rectangle_filled
-        last_color = None
-        seg_bottom = None
-        seg_top = None
-
-        # A ray crosses at most width+height cells before exiting the map
-        max_steps = width + height + 2
-        steps = 0
-
-        while steps < max_steps:
-            steps += 1
-
-            use_x = side_dist_x < side_dist_y
-            d_next = side_dist_x if use_x else side_dist_y
-
-            # Cap to max distance
-            if d_next > max_dist:
-                d_next = max_dist
-
-            y0 = y_from_dist(d_prev)
-            y1 = y_from_dist(d_next)
-            if y1 < y0:
-                y0, y1 = y1, y0
-
-            y0 = max(0, min(y0, y_limit))
-            y1 = max(0, min(y1, y_limit))
-
-            if y1 > y0:
-                if 0 <= map_x < width and 0 <= map_y < height:
-                    t = tiles[map_y][map_x]
-                    base = col_park if t == "P" else col_street
+                if self.tex_wall:
+                    arcade.draw_texture_rect(self.tex_wall, arcade.XYWH(cx, cy, w, h))
                 else:
-                    # Outside map -> don't shade further; break after flushing
-                    base = col_street
-
-                d_mid = 0.5 * (d_prev + d_next)
-                raw = (1.0 / (1.0 + d_mid * att)) * clamp_vis
-                q = max(0, min(levels, int(raw * levels)))
-                factor = q / levels
-                color = (int(base[0] * factor), int(base[1] * factor), int(base[2] * factor))
-
-                y0q = (y0 // step_y_quant) * step_y_quant
-                y1q = min(y_limit, ((y1 + step_y_quant - 1) // step_y_quant) * step_y_quant)
-
-                if y1q > y0q:
-                    if last_color is None:
-                        last_color = color
-                        seg_bottom = y0q
-                        seg_top = y1q
-                    elif color == last_color and y0q <= seg_top:
-                        seg_top = max(seg_top, y1q)
-                    else:
-                        draw_rect(left, right, seg_bottom, seg_top, last_color)
-                        last_color = color
-                        seg_bottom = y0q
-                        seg_top = y1q
-
-            d_prev = d_next
-
-            # Stop if we've filled the column, hit max distance, or left the map
-            if y_from_dist(d_prev) >= y_limit or d_prev >= max_dist:
-                break
-
-            if use_x:
-                side_dist_x += delta_x
-                map_x += step_x
+                    wall_color = self.col_building
+                    if side == 1:
+                        wall_color = (
+                            max(0, wall_color[0] - 20),
+                            max(0, wall_color[1] - 20),
+                            max(0, wall_color[2] - 20),
+                        )
+                    arcade.draw_lrbt_rectangle_filled(left, right, bottom, top, wall_color)
+                wall_bottom = bottom
             else:
-                side_dist_y += delta_y
-                map_y += step_y
+                wall_bottom = horizon
 
-            if not (0 <= map_x < width and 0 <= map_y < height):
-                # Outside map; stop sweeping further
-                break
+            # Floor fill (streets/parks)
+            y_end = int(min(horizon, wall_bottom))
+            if y_end <= 0:
+                continue
 
-        # Flush last merged segment
-        if last_color is not None and seg_bottom is not None and seg_top is not None and seg_top > seg_bottom:
-            draw_rect(left, right, seg_bottom, seg_top, last_color)
+            last_color = None
+            seg_start = 0
+            y = 0
+            while y < y_end:
+                denom = (horizon - y)
+                if denom <= 0:
+                    break
 
-    def _get_floor_base_color(self, map_x: int, map_y: int) -> Tuple[int, int, int]:
-        if not (0 <= map_x < self.city.width and 0 <= map_y < self.city.height):
-            return self.color_map["C"]
-        t = self.city.tiles[map_y][map_x]
-        return self.color_map["P"] if t == "P" else self.color_map["C"]
+                row_dist = posZ / denom
+                world_x = px + dir_x * row_dist
+                world_y = py + dir_y * row_dist
+                mx = int(world_x)
+                my = int(world_y)
 
-    def _get_floor_color(self, map_x: int, map_y: int, distance: float, visibility: float) -> Tuple[int, int, int]:
-        base = self._get_floor_base_color(map_x, map_y)
-        depth_factor = clamp(1.0 - (distance * 0.05), 0.1, 1.0)
-        visibility_factor = clamp(visibility, 0.2, 1.0)
-        factor = clamp(depth_factor * visibility_factor, 0.1, 1.0)
-        return tuple(int(c * factor) for c in base)
+                color = self._floor_color_for(mx, my)
+
+                if last_color is None:
+                    last_color = color
+                    seg_start = y
+                elif color != last_color:
+                    arcade.draw_lrbt_rectangle_filled(left, right, seg_start, y, last_color)
+                    last_color = color
+                    seg_start = y
+
+                y += self.floor_row_step
+
+            if last_color is not None and seg_start < y_end:
+                arcade.draw_lrbt_rectangle_filled(left, right, seg_start, y_end, last_color)
 
     def _ensure_minimap_cache(self, x: int, y: int, size: int):
         """

@@ -20,8 +20,8 @@
     },
     "rendering": {
         "fov": 1.047,
-        "num_rays": 160,
-        "floor_row_step": 2
+        "num_rays": 70,
+        "floor_row_step": 3
     },
     "api": {
         "base_url": "https://tigerds-api.kindflower-ccaf48b6.eastus.azurecontainerapps.io",
@@ -35,10 +35,14 @@
     },
     "colors": {
         "street": [105, 105, 105],
-        "building": [0, 0, 0],
+        "building": [198, 134, 0],
         "park": [144, 238, 144],
         "player": [255, 255, 0],
         "pickup": [0, 255, 0],
         "dropoff": [255, 0, 0]
+    },
+    "textures": {
+        "sky": "assets/sky.png",
+        "wall": "assets/wall.png"
     }
 }
