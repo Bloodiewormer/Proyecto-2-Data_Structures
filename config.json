@@ -1,0 +1,44 @@
+{
+    "display": {
+        "width": 800,
+        "height": 600,
+        "title": "Courier Quest",
+        "resizable": false
+    },
+    "game": {
+        "tile_size": 32,
+        "time_limit_minutes": 12,
+        "initial_reputation": 70,
+        "initial_stamina": 100,
+        "goal_earnings": 3000
+    },
+    "player": {
+        "base_speed": 3.0,
+        "move_speed": 3.0,
+        "turn_speed": 1.5,
+        "max_inventory_weight": 10
+    },
+    "rendering": {
+        "fov": 1.047,
+        "num_rays": 160,
+        "floor_row_step": 2
+    },
+    "api": {
+        "base_url": "https://tigerds-api.kindflower-ccaf48b6.eastus.azurecontainerapps.io",
+        "timeout": 10,
+        "cache_enabled": true
+    },
+    "files": {
+        "save_directory": "saves",
+        "data_directory": "data",
+        "cache_directory": "api_cache"
+    },
+    "colors": {
+        "street": [105, 105, 105],
+        "building": [0, 0, 0],
+        "park": [144, 238, 144],
+        "player": [255, 255, 0],
+        "pickup": [0, 255, 0],
+        "dropoff": [255, 0, 0]
+    }
+}
