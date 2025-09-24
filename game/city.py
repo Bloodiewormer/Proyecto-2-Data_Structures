@@ -103,7 +103,6 @@ class CityMap:
         return (1.0, 1.0)
 
 
-
     def _parse_map_data(self, map_data: Dict[str, Any]):
         # Extraer datos
         if "data" in map_data:

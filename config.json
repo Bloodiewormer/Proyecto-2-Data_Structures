@@ -20,8 +20,8 @@
     },
     "rendering": {
         "fov": 1.047,
-        "num_rays": 70,
-        "floor_row_step": 3
+        "num_rays": 100,
+        "floor_row_step": 2
     },
     "api": {
         "base_url": "https://tigerds-api.kindflower-ccaf48b6.eastus.azurecontainerapps.io",
@@ -43,6 +43,8 @@
     },
     "textures": {
         "sky": "assets/sky.png",
-        "wall": "assets/wall.png"
+        "wall": "assets/wall.png",
+        "floor": "assets/floor.png",
+        "door": "assets/door.png"
     }
 }

@@ -84,6 +84,42 @@ def load_json(filepath: str) -> Dict[str, Any]:
         print(f"Error al leer JSON {filepath}: {e}")
         return {}
 
+def _is_building_perimeter(city, col, row) -> bool:
+    if city.tiles[row][col] != "B":
+        return False
+    # 4-neighbors: debe tener al menos un vecino no "B"
+    for nx, ny in ((col + 1, row), (col - 1, row), (col, row + 1), (col, row - 1)):
+        if 0 <= nx < city.width and 0 <= ny < city.height:
+            if city.tiles[ny][nx] != "B":
+                return True
+    return False
+
+def find_nearest_building(city, x, y):
+    # 1) Buscar el B de perímetro más cercano
+    min_dist = float("inf")
+    nearest = None
+    for row in range(city.height):
+        for col in range(city.width):
+            if _is_building_perimeter(city, col, row):
+                dist = (col - x) ** 2 + (row - y) ** 2
+                if dist < min_dist:
+                    min_dist = dist
+                    nearest = (col, row)
+    if nearest is not None:
+        return nearest
+
+    # 2) Fallback: cualquier B (por si no hay fachadas)
+    min_dist = float("inf")
+    nearest = None
+    for row in range(city.height):
+        for col in range(city.width):
+            if city.tiles[row][col] == "B":
+                dist = (col - x) ** 2 + (row - y) ** 2
+                if dist < min_dist:
+                    min_dist = dist
+                    nearest = (col, row)
+    return nearest
+
 def get_timestamp() -> str:
     return datetime.now().isoformat()
 
