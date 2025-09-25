@@ -2,12 +2,16 @@ import arcade
 from typing import Optional
 import math
 import random  # Para la variación del velocímetro
+import os
+import json
 
 from api.client import APIClient
 from game.city import CityMap
 from game.player import Player
 from game.renderer import RayCastRenderer
 from game.utils import find_nearest_building
+
+from .inventory import Order, Inventory
 
 
 class CourierGame(arcade.Window):
@@ -67,21 +71,51 @@ class CourierGame(arcade.Window):
         self.player = Player(sx, sy, self.app_config.get("player", {}))
 
         self.renderer = RayCastRenderer(self.city, self.app_config)
-        orders = [
+        """orders = [
             {"pickup": [20, 19], "dropoff": [10, 22]},
             {"pickup": [27, 24], "dropoff": [4, 6]},
             {"pickup": [23, 9], "dropoff": [26, 5]},
             {"pickup": [20, 22], "dropoff": [7, 18]},
             {"pickup": [20, 21], "dropoff": [10, 20]},
-        ]
+        ]"""
+        cache_dir = files_conf.get("cache_directory") or os.path.join(os.getcwd(), "api_cache")
+        orders_path = os.path.join(cache_dir, "pedidos.json")
+        orders_data = []
+        try:
+            with open(orders_path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+                orders_data = data.get("orders", [])
+                print(f"Cargados {len(orders_data)} pedidos de {orders_path}")
+        except Exception as e:
+            print(f"No se pudo leer {orders_path}: {e}")
 
-        for order in orders:
-            for coord in [order["pickup"], order["dropoff"]]:
-                x, y = coord
-                pos = find_nearest_building(self.city, x, y)
-                if pos and self.city.tiles[pos[1]][pos[0]] == "B" and self.renderer:
-                    print(f"Puerta para {coord} en {pos}")
-                    self.renderer.generate_door_at(*pos)
+        for o in orders_data:
+            try:
+                order_obj = Order(
+                    id=str(o["id"]),
+                    pickup_location=list(o["pickup"]),
+                    dropoff_location=list(o["dropoff"]),
+                    payout=float(o["payout"]),
+                    weight=float(o["weight"]),
+                    deadline=str(o["deadline"]),
+                    priority=int(o.get("priority", 0)),
+                    release_time=int(o.get("release_time", 0)),
+                )
+                if self.player:
+                    self.player.add_order_to_inventory(order_obj)
+            except Exception as e:
+                print(f"Error creando/agregando pedido {o}: {e}")    
+
+        for coord in (o.get("pickup"), o.get("dropoff")):
+                try:
+                    if not coord or not self.renderer:
+                        continue
+                    x, y = coord
+                    pos = find_nearest_building(self.city, x, y)
+                    if pos and self.city.tiles[pos[1]][pos[0]] == "B":
+                        self.renderer.generate_door_at(*pos)
+                except Exception as e:
+                    print(f"No se pudo generar puerta para {coord}: {e}")
 
     def on_draw(self):
         self.clear()
@@ -90,8 +124,17 @@ class CourierGame(arcade.Window):
             self.renderer.render_world(self.player, weather_system=None)
             self.renderer.render_minimap(10, 10, 160, self.player)
 
+
         earnings = self.player.earnings if self.player else 0.0
         reputation = self.player.reputation if self.player else 0.0
+
+        if self.player:
+            inventory_width = 450
+            inventory_height = 400
+            inventory_x = self.width - inventory_width - 50
+            inventory_y = self.height - inventory_height - 50
+
+            self.player.inventory.draw_inventory(inventory_x, inventory_y, inventory_width, inventory_height)
 
         if self.frame_times:
             dt_list = self.frame_times[-60:]
@@ -253,6 +296,29 @@ class CourierGame(arcade.Window):
             self._turn_right = True
         elif symbol == arcade.key.ESCAPE:
             arcade.exit()
+        # Controles del inventario
+        elif symbol == arcade.key.TAB and modifiers & arcade.key.MOD_SHIFT:
+            # Shift+Tab: ordenar por prioridad
+            if self.player:
+                self.player.inventory.sort_by_priority()
+        elif symbol == arcade.key.TAB:
+            # Tab: alternar modo de ordenamiento
+            if self.player:
+                # Alterna entre 'priority' y 'deadline'
+                if self.player.inventory.sort_mode == "priority":
+                    self.player.inventory.sort_mode = "deadline"
+                    self.player.inventory.sort_by_deadline()
+                else:
+                    self.player.inventory.sort_mode = "priority"
+                    self.player.inventory.sort_by_priority()
+        elif symbol == arcade.key.E:
+            # E: siguiente pedido
+            if self.player:
+                self.player.inventory.next_order()
+        elif symbol == arcade.key.Q:
+            # Q: pedido anterior
+            if self.player:
+                self.player.inventory.previous_order()
 
     def on_key_release(self, symbol: int, modifiers: int):
         if symbol in (arcade.key.W, arcade.key.UP):
