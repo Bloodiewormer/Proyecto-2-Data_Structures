@@ -22,8 +22,6 @@ class CourierGame(arcade.Window):
         self.app_config = app_config
         self.frame_times = []
         self.performance_counter = 0
-        self.state_manager = GameStateManager(self)
-        self.save_manager = SaveManager(app_config)
 
         # Factor de velocidad al retroceder (30% de la normal)
         self.backward_factor = 0.3
@@ -39,7 +37,6 @@ class CourierGame(arcade.Window):
 
         self.background_color = arcade.color.SKY_BLUE
 
-        # Sistemas principales
         self.api_client: Optional[APIClient] = None
         self.city: Optional[CityMap] = None
         self.player: Optional[Player] = None
@@ -226,19 +223,13 @@ class CourierGame(arcade.Window):
             api_conf["cache_directory"] = files_conf["cache_directory"]
         self.api_client = APIClient(api_conf)
 
-        # City Map
         self.city = CityMap(self.api_client, self.app_config)
         self.city.load_map()
 
-        # Player
         sx, sy = self.city.get_spawn_position()
         self.player = Player(sx, sy, self.app_config.get("player", {}))
 
-        # Renderer
         self.renderer = RayCastRenderer(self.city, self.app_config)
-
-    def _setup_orders(self):
-        """Configurar órdenes/pedidos del juego"""
         """orders = [
             {"pickup": [20, 19], "dropoff": [10, 22]},
             {"pickup": [27, 24], "dropoff": [4, 6]},
@@ -272,7 +263,7 @@ class CourierGame(arcade.Window):
                 if self.player:
                     self.player.add_order_to_inventory(order_obj)
             except Exception as e:
-                print(f"Error creando/agregando pedido {o}: {e}")
+                print(f"Error creando/agregando pedido {o}: {e}")    
 
         for coord in (o.get("pickup"), o.get("dropoff")):
                 try:
@@ -285,53 +276,14 @@ class CourierGame(arcade.Window):
                 except Exception as e:
                     print(f"No se pudo generar puerta para {coord}: {e}")
 
-        # Guardar órdenes para el sistema de guardado
-        self.orders_data = {"active_orders": orders}
-
-    def show_notification(self, message: str, duration: float = 2.0):
-        """Mostrar mensaje de notificación temporal"""
-        self.notification_message = message
-        self.notification_timer = duration
-
     def on_draw(self):
         self.clear()
 
-        if self.state_manager.current_state == GameState.MAIN_MENU:
-            if self.state_manager.main_menu:
-                self.state_manager.main_menu.draw()
-
-        elif self.state_manager.current_state == GameState.PLAYING:
-            self._draw_game()
-
-        elif self.state_manager.current_state == GameState.PAUSED:
-            # Dibujar el juego de fondo
-            self._draw_game()
-            # Dibujar menú de pausa encima
-            if self.state_manager.pause_menu:
-                self.state_manager.pause_menu.draw()
-
-        # Dibujar notificaciones
-        self._draw_notifications()
-
-    def _draw_game(self):
-        """Dibujar el juego principal"""
-        if not self.renderer or not self.player:
-            return
-
-        # Renderizar mundo 3D
-        self.renderer.render_world(self.player, weather_system=None)
-        self.renderer.render_minimap(10, 10, 160, self.player)
+        if self.renderer and self.player:
+            self.renderer.render_world(self.player, weather_system=None)
+            self.renderer.render_minimap(10, 10, 160, self.player)
 
 
-        # HUD del juego
-        self._draw_hud()
-
-        # Velocímetro
-        if self.player and self.city:
-            self._draw_bike_speedometer()
-
-    def _draw_hud(self):
-        """Dibujar interfaz de usuario del juego"""
         earnings = self.player.earnings if self.player else 0.0
         reputation = self.player.reputation if self.player else 0.0
 
@@ -343,7 +295,6 @@ class CourierGame(arcade.Window):
 
             self.player.inventory.draw_inventory(inventory_x, inventory_y, inventory_width, inventory_height)
 
-        # FPS y performance
         if self.frame_times:
             dt_list = self.frame_times[-60:]
             avg_dt = (sum(dt_list) / len(dt_list)) if dt_list else 0.0
@@ -353,13 +304,11 @@ class CourierGame(arcade.Window):
             self.hud_performance.text = f"FPS: {avg_fps:.1f} | Rays: {rays}"
             self.hud_performance.draw()
 
-        # Posición del jugador
         self.hud_player_location.position = (10, self.height - 80)
         if self.player:
             self.hud_player_location.text = f"Pos: ({self.player.x:.1f}, {self.player.y:.1f}) Angle: {self.player.angle:.2f} rad"
             self.hud_player_location.draw()
 
-        # Estadísticas
         self.hud_stats.position = (10, self.height - 40)
         self.hud_stats.text = f"$ {earnings:.0f} | rep: {reputation:.0f}"
         self.hud_stats.draw()
@@ -411,7 +360,7 @@ class CourierGame(arcade.Window):
             rep_bar_y = 60  # Encima de la barra de stamina
 
             reputation = self.player.reputation
-            max_reputation = 100
+            max_reputation = 100  # Puedes ajustar si hay un máximo diferente
             rep_percent = max(0.0, min(1.0, reputation / max_reputation))
 
             arcade.draw_lrbt_rectangle_filled(
@@ -441,60 +390,10 @@ class CourierGame(arcade.Window):
                 12
             )
 
-        # Instrucciones de pausa
-        arcade.draw_text(
-            "ESC - Pausa",
-            self.width - 100, self.height - 30,
-            arcade.color.WHITE, 12,
-            anchor_x="center"
-        )
-
-    def _draw_notifications(self):
-        """Dibujar notificaciones temporales"""
-        if self.notification_timer > 0 and self.notification_message:
-            # Fondo semi-transparente
-            msg_width = len(self.notification_message) * 12 + 20
-            msg_height = 40
-            msg_x = (self.width - msg_width) // 2
-            msg_y = self.height - 150
-
-            arcade.draw_lrbt_rectangle_filled(
-                msg_x, msg_x + msg_width,
-                msg_y, msg_y + msg_height,
-                (0, 0, 0, 180)
-            )
-            arcade.draw_lrbt_rectangle_outline(
-                msg_x, msg_x + msg_width,
-                msg_y, msg_y + msg_height,
-                arcade.color.WHITE, 2
-            )
-
-            # Texto
-            arcade.draw_text(
-                self.notification_message,
-                self.width // 2, msg_y + msg_height // 2 - 6,
-                arcade.color.WHITE, 16,
-                anchor_x="center"
-            )
+        if self.player and self.city:
+            self._draw_bike_speedometer()
 
     def on_update(self, delta_time: float):
-        # Actualizar temporizador de notificaciones
-        if self.notification_timer > 0:
-            self.notification_timer -= delta_time
-
-        # Solo actualizar el juego si está en estado PLAYING
-        if self.state_manager.current_state != GameState.PLAYING:
-            return
-
-        # Actualizar tiempo de juego
-        current_time = time.time()
-        if self.game_start_time > 0:
-            if self.last_update_time == 0:
-                self.last_update_time = current_time
-            else:
-                self.total_play_time += current_time - self.last_update_time
-                self.last_update_time = current_time
-
         # FPS
         self.frame_times.append(delta_time)
         if len(self.frame_times) > 240:
@@ -529,14 +428,14 @@ class CourierGame(arcade.Window):
 
         if moved:
             base_speed = self.player.calculate_effective_speed(self.city)
-            move_scale = math.hypot(dx, dy)
+            move_scale = math.hypot(dx, dy)  # 1.0 adelante, backward_factor atrás
             self.last_move_scale = move_scale
             target_speed = base_speed * move_scale
         else:
             target_speed = 0.0
             self.last_move_scale = 0.0
 
-        # Suavizado de velocidad
+        # Suavizado
         speed_diff = target_speed - self.displayed_speed
         self.displayed_speed += speed_diff * self.speed_smoothing * delta_time
         if abs(speed_diff) < 0.01:
@@ -544,7 +443,7 @@ class CourierGame(arcade.Window):
         if not moved and abs(self.displayed_speed) < 0.05:
             self.displayed_speed = 0.0
 
-        # Actualizar jugador
+        # Update jugador (estado / stamina)
         self.player.update(delta_time)
 
     def on_key_press(self, symbol: int, modifiers: int):
@@ -581,41 +480,16 @@ class CourierGame(arcade.Window):
             # Q: pedido anterior
             if self.player:
                 self.player.inventory.previous_order()
-        # Manejar entrada según el estado actual
-        if self.state_manager.current_state == GameState.MAIN_MENU:
-            if self.state_manager.main_menu:
-                self.state_manager.main_menu.handle_key_press(symbol, modifiers)
-
-        elif self.state_manager.current_state == GameState.PAUSED:
-            if self.state_manager.pause_menu:
-                self.state_manager.pause_menu.handle_key_press(symbol, modifiers)
-
-        elif self.state_manager.current_state == GameState.PLAYING:
-            # Controles del juego
-            if symbol in (arcade.key.W, arcade.key.UP):
-                self._move_forward = True
-            elif symbol in (arcade.key.S, arcade.key.DOWN):
-                self._move_backward = True
-            elif symbol in (arcade.key.A, arcade.key.LEFT):
-                self._turn_left = True
-            elif symbol in (arcade.key.D, arcade.key.RIGHT):
-                self._turn_right = True
-            elif symbol == arcade.key.ESCAPE:
-                self.pause_game()
-            elif symbol == arcade.key.F5:  # Guardado rápido
-                self.save_game()
 
     def on_key_release(self, symbol: int, modifiers: int):
-        # Solo procesar liberación de teclas en estado de juego
-        if self.state_manager.current_state == GameState.PLAYING:
-            if symbol in (arcade.key.W, arcade.key.UP):
-                self._move_forward = False
-            elif symbol in (arcade.key.S, arcade.key.DOWN):
-                self._move_backward = False
-            elif symbol in (arcade.key.A, arcade.key.LEFT):
-                self._turn_left = False
-            elif symbol in (arcade.key.D, arcade.key.RIGHT):
-                self._turn_right = False
+        if symbol in (arcade.key.W, arcade.key.UP):
+            self._move_forward = False
+        elif symbol in (arcade.key.S, arcade.key.DOWN):
+            self._move_backward = False
+        elif symbol in (arcade.key.A, arcade.key.LEFT):
+            self._turn_left = False
+        elif symbol in (arcade.key.D, arcade.key.RIGHT):
+            self._turn_right = False
 
     def on_resize(self, width: int, height: int):
         super().on_resize(width, height)
@@ -629,7 +503,8 @@ class CourierGame(arcade.Window):
         max_speed = self.player.base_speed * 1.2
         speed_percent = min(1.0, speed / max_speed)
 
-        # Posición
+
+        # Posición (a la derecha, sobre la barra de stamina)
         bar_x = self.width - 200 - 80
         center_x = bar_x + 235
         center_y = 150
@@ -637,7 +512,7 @@ class CourierGame(arcade.Window):
 
         # Variación aleatoria
         max_jitter_kmh = 1.5
-        jitter_units = max_jitter_kmh / 10.0
+        jitter_units = max_jitter_kmh / 10.0  # conversión
         if speed > 0.05:
             variation_intensity = min(1.0, speed / max(0.001, self.player.base_speed))
             speed_variation = random.uniform(-jitter_units, jitter_units) * variation_intensity
@@ -647,7 +522,7 @@ class CourierGame(arcade.Window):
             varied_speed = speed
             varied_speed_percent = speed_percent
 
-        # Fondo del velocímetro
+        # Fondo
         arcade.draw_circle_filled(center_x, center_y, radius + 3, (40, 40, 40))
         arcade.draw_circle_outline(center_x, center_y, radius + 3, arcade.color.WHITE, 2)
 
@@ -688,7 +563,7 @@ class CourierGame(arcade.Window):
         arcade.draw_line(center_x, center_y, needle_x, needle_y, arcade.color.WHITE, 2)
         arcade.draw_circle_filled(center_x, center_y, 3, arcade.color.WHITE)
 
-        # Marcas de velocidad
+        # Marcas
         for i in range(5):
             mark_percent = i / 4.0
             mark_angle = start_angle + (end_angle - start_angle) * mark_percent
@@ -699,14 +574,14 @@ class CourierGame(arcade.Window):
             y2 = center_y + math.sin(radm) * (radius - 1)
             arcade.draw_line(x1, y1, x2, y2, arcade.color.WHITE, 2)
 
-        # Texto de velocidad
+        # Texto (km/h ficticios)
         speed_kmh = varied_speed * 10.0
         arcade.draw_text(f"{speed_kmh:.0f}", center_x, center_y - 10,
                          arcade.color.WHITE, 14, anchor_x="center")
         arcade.draw_text("km/h", center_x, center_y - 22,
                          arcade.color.LIGHT_GRAY, 8, anchor_x="center")
 
-        # Indicador de estado del jugador
+        # Estado jugador
         state_colors = {
             "normal": arcade.color.GREEN,
             "tired": arcade.color.YELLOW,
