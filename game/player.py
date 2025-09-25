@@ -2,6 +2,7 @@
 import math
 from typing import Dict, Any, Tuple, Optional
 from .utils import clamp, normalize_angle
+from .inventory import Order, Inventory
 
 class PlayerState:
     NORMAL = "normal"      # >30 stamina
@@ -23,6 +24,10 @@ class Player:
         self.earnings = 0.0
         self.total_weight = 0.0
 
+        #inventario 
+        max_inventory_weight = config.get("max_inventory_weight", 10.0)
+        self.inventory = Inventory(max_inventory_weight)
+
         self.state = PlayerState.NORMAL
         self.is_moving = False
         self.recovery_timer = 0.0
@@ -34,6 +39,25 @@ class Player:
         self.deliveries_completed = 0
         self.orders_cancelled = 0
         self.consecutive_on_time = 0
+
+
+    def add_order_to_inventory(self, order: Order) -> bool:
+        """agregar un pedido al inventario del player y actualiza el peso total"""
+        success = self.inventory.add_order(order)
+        if success:
+            self.set_inventory_weight(self.inventory.current_weight)
+        return success
+    
+    def remove_order_from_inventory(self, order_id: str) -> Optional[Order]:
+        """quita un pedido del inventario y actualiza el peso total"""
+        removed_order = self.inventory.remove_order(order_id)
+        if removed_order:
+            self.set_inventory_weight(self.inventory.current_weight)
+        return removed_order
+    
+    def get_current_order(self) -> Optional[Order]:
+        """obtiene el pedido que se agarro actualmente"""
+        return self.inventory.get_current_order()
 
     def update(self, delta_time: float):
         self._update_state()

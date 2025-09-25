@@ -20,7 +20,7 @@
     },
     "rendering": {
         "fov": 1.047,
-        "num_rays": 100,
+        "num_rays": 75,
         "floor_row_step": 2
     },
     "api": {
@@ -39,7 +39,11 @@
         "park": [144, 238, 144],
         "player": [255, 255, 0],
         "pickup": [0, 255, 0],
-        "dropoff": [255, 0, 0]
+        "dropoff": [255, 0, 0],
+        "sky": [135, 206, 235],
+        "cloud": [255, 255, 255],
+        "wall": [180, 180, 180],
+        "wall_dark": [140, 140, 140]
     },
     "textures": {
         "sky": "assets/sky.png",
