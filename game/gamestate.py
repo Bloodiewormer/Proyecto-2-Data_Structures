@@ -175,7 +175,7 @@ class MainMenu:
     def _get_save_info(self) -> str:
         """Obtener información básica de la partida guardada"""
         try:
-            from game.SaveManager import SaveManager
+            from game.saveManager import SaveManager
             save_manager = SaveManager(self.game.app_config)
             info = save_manager.get_save_info()
             if info:

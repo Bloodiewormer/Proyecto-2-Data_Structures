@@ -75,6 +75,7 @@ class RayCastRenderer:
         self._ray_last_num = None
 
         # Perf
+        self.debug = bool(app_config.get("debug", False))
         self._perf_accum = {"clouds": 0.0, "walls": 0.0, "floor": 0.0, "minimap": 0.0, "frames": 0}
         self._last_perf_report = time.perf_counter()
 
@@ -538,8 +539,10 @@ class RayCastRenderer:
             floor_ms = (self._perf_accum["floor"] / f) * 1000
             minimap_ms = (self._perf_accum["minimap"] / f) * 1000
             total_ms = clouds_ms + walls_ms + floor_ms + minimap_ms
-            print(
-                f"[Perf] clouds={clouds_ms:.2f}ms walls={walls_ms:.2f}ms floor={floor_ms:.2f}ms minimap={minimap_ms:.2f}ms total≈{total_ms:.2f}ms")
+            if self.debug:
+                print(
+                    f"[RendPerf] clouds={clouds_ms:.2f}ms walls={walls_ms:.2f}ms floor={floor_ms:.2f}ms minimap={minimap_ms:.2f}ms total≈{total_ms:.2f}ms"
+                )
             self._perf_accum = {"clouds": 0.0, "walls": 0.0, "floor": 0.0, "minimap": 0.0, "frames": 0}
             self._last_perf_report = now
 

@@ -1,9 +1,10 @@
 {
+    "debug": false,
     "display": {
         "width": 800,
         "height": 600,
         "title": "Courier Quest",
-        "resizable": false
+        "resizable": true
     },
     "game": {
         "tile_size": 32,

@@ -8,7 +8,7 @@ from typing import Dict, Any, Optional, List, Tuple
 from .utils import save_json, load_json
 
 
-class SaveManager:
+class saveManager:
     """Administrador de guardado y carga de partidas"""
 
     def __init__(self, config: Dict[str, Any]):
