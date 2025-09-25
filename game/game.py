@@ -127,6 +127,7 @@ class CourierGame(arcade.Window):
                 bar_y, bar_y + bar_height,
                 arcade.color.BLACK
             )
+
             if stamina_percent > 0:
                 green_width = int(bar_width * stamina_percent)
                 arcade.draw_lrbt_rectangle_filled(
@@ -134,6 +135,7 @@ class CourierGame(arcade.Window):
                     bar_y, bar_y + bar_height,
                     arcade.color.GREEN
                 )
+
             arcade.draw_lrbt_rectangle_outline(
                 bar_x, bar_x + bar_width,
                 bar_y, bar_y + bar_height,
