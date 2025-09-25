@@ -1,0 +1,34 @@
+{
+    "orders": [
+        {
+            "id": "PED-001",
+            "pickup": [20, 19],
+            "dropoff": [10, 22],
+            "payout": 120,
+            "deadline": "2025-09-25T12:30:00",
+            "weight": 2,
+            "priority": 0,
+            "release_time": 0
+        },
+        {
+            "id": "PED-002",
+            "pickup": [27, 24],
+            "dropoff": [4, 6],
+            "payout": 200,
+            "deadline": "2025-09-25T12:10:00",
+            "weight": 1,
+            "priority": 1,
+            "release_time": 45
+        },
+        {
+            "id": "PED-003",
+            "pickup": [23, 9],
+            "dropoff": [26, 5],
+            "payout": 180,
+            "deadline": "2025-09-25T12:45:00",
+            "weight": 3,
+            "priority": 2,
+            "release_time": 90
+        }
+    ]
+}
