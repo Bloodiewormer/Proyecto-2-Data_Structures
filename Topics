@@ -7,3 +7,27 @@ Collision detection
 Sistema de caché
 Cadenas de Markov
 Interpolación lineal
+
+falta que implementar 
+puntos de recogida 
+puntos de dejada
+inventario
+ordenamiento de inventario(deadline/prioridad)
+implementar todo weather
+-cambia cada 20/30 para tantear 
+-siguiendo cadena de Markov
+velocidad como la resistencia cambia constantemente
+hay que bajar la velocidad y aumentar la estamina que se gasta
+lluvia, viento, calor extremo aumentan el consumo de stamina y se reduce la velocidad
+A mayor menor velocidad
+reputacion comienza en 70
+entregas puntuales aumenta reputacion, retraso o cancelamientos reducen la reputacion
+con reputacion +90 es igual a +5 extra en pagos
+MENU PRINCIPAL
+si la reputacion es menor a 20 se termina el juego
+victoria cuando uno acaba la meta antes de que se acabe el tiempo
+tiempo limite no hay falta definir
+surface weight ya esta
+
+persistencia de los archivos
+guardar el estado del juego
