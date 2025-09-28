@@ -402,6 +402,9 @@ class CourierGame(arcade.Window):
                 self.total_play_time += current_time - self.last_update_time
                 self.last_update_time = current_time
 
+        if self.player and hasattr(self.player, 'inventory'):
+            self.player.inventory.update_animation(delta_time)
+
         self.frame_times.append(delta_time)
         if len(self.frame_times) > 240:
             self.frame_times.pop(0)
@@ -478,10 +481,22 @@ class CourierGame(arcade.Window):
             elif symbol == arcade.key.TAB:
                 # TAB toggles sort mode (Shift also just toggles since only 2 modes)
                 self._toggle_inventory_sort()
+            elif symbol == arcade.key.I:  # ← NUEVA TECLA PARA INVENTARIO
+                self._toggle_inventory()
         if state == GameState.MAIN_MENU and self.state_manager.main_menu:
             self.state_manager.main_menu.handle_key_press(symbol, modifiers)
         elif state == GameState.PAUSED and self.state_manager.pause_menu:
             self.state_manager.pause_menu.handle_key_press(symbol, modifiers)
+
+
+    def _toggle_inventory(self):
+        """Alterna la visibilidad del inventario"""
+        if self.player and hasattr(self.player, 'inventory'):
+            self.player.inventory.toggle_open()
+            if self.player.inventory.is_open:
+                self.show_notification("Inventario abierto")
+            else:
+                self.show_notification("Inventario cerrado")
 
     def on_key_release(self, symbol: int, modifiers: int):
         if self.state_manager.current_state != GameState.PLAYING:
