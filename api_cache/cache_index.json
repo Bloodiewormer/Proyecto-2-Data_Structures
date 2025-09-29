@@ -1,8 +1,14 @@
 {
   "map": {
     "file": "api_cache\\map.json",
-    "timestamp": "2025-09-27T17:33:27.837734",
-    "expires_at": "2025-09-28T17:33:27.837734",
+    "timestamp": "2025-09-28T19:53:11.348979",
+    "expires_at": "2025-09-29T19:53:11.348979",
     "size": 15702
+  },
+  "weather": {
+    "file": "api_cache\\weather.json",
+    "timestamp": "2025-09-28T19:53:11.428037",
+    "expires_at": "2025-09-28T20:08:11.428037",
+    "size": 1479
   }
 }

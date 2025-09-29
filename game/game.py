@@ -10,7 +10,8 @@ from api.client import APIClient
 from game.city import CityMap
 from game.player import Player
 from game.renderer import RayCastRenderer
-from game.utils import find_nearest_building
+from game.weather import WeatherSystem
+from game.utils import find_nearest_building, format_time
 from game.gamestate import GameStateManager, GameState, MainMenu, PauseMenu
 from game.saveManager import saveManager
 from .inventory import Order
@@ -45,11 +46,14 @@ class CourierGame(arcade.Window):
         self.city: Optional[CityMap] = None
         self.player: Optional[Player] = None
         self.renderer: Optional[RayCastRenderer] = None
+        self.weather_system: Optional[WeatherSystem] = None
 
         # Timing
         self.game_start_time = 0
         self.total_play_time = 0
         self.last_update_time = 0
+        self.time_limit = app_config.get("game", {}).get("time_limit_minutes", 15) * 60  # Convertir a segundos
+        self.time_remaining = self.time_limit
 
         # Input state
         self._move_forward = False
@@ -66,20 +70,22 @@ class CourierGame(arcade.Window):
         self.game_stats = {}
 
         # Update rate
-        self.set_update_rate(1 / 60)
+        self.set_update_rate(1 / 60) # 60 FPS
 
         # HUD text objects
         self.hud_fps = arcade.Text("", 10, self.height - 20, arcade.color.WHITE, 12)
         self.hud_stats = arcade.Text("", 10, self.height - 40, arcade.color.WHITE, 12)
         self.hud_performance = arcade.Text("", 10, self.height - 60, arcade.color.YELLOW, 10)
         self.hud_player_location = arcade.Text("", 10, self.height - 80, arcade.color.WHITE, 12)
+        self.hud_weather = arcade.Text("", 10, self.height - 100, arcade.color.WHITE, 12)
+        self.hud_time = arcade.Text("", 10, self.height - 120, arcade.color.WHITE, 14)
 
         # Notifications
         self.notification_message = ""
         self.notification_timer = 0
 
         # Performance accumulators
-        self._perf_accum_game = {"api": 0.0, "inventory": 0.0, "orders": 0.0, "frames": 0}
+        self._perf_accum_game = {"api": 0.0, "inventory": 0.0, "orders": 0.0, "weather": 0.0, "frames": 0}
         self._last_perf_report_game = time.perf_counter()
 
         # Flags
@@ -95,6 +101,7 @@ class CourierGame(arcade.Window):
             self._setup_orders()
             self.game_start_time = time.time()
             self.total_play_time = 0
+            self.time_remaining = self.time_limit  # Reiniciar tiempo límite
             self.game_stats = {
                 "start_time": self.game_start_time,
                 "play_time": 0,
@@ -124,6 +131,7 @@ class CourierGame(arcade.Window):
             if "game_stats" in save_data:
                 self.game_stats = save_data["game_stats"]
                 self.total_play_time = self.game_stats.get("play_time", 0)
+                self.time_remaining = self.game_stats.get("time_remaining", self.time_limit)
             self._setup_orders()
             self.state_manager.change_state(GameState.PLAYING)
             self.show_notification("Partida cargada")
@@ -140,6 +148,7 @@ class CourierGame(arcade.Window):
             if self.game_start_time > 0:
                 self.total_play_time += current_time - self.last_update_time
                 self.game_stats["play_time"] = self.total_play_time
+                self.game_stats["time_remaining"] = self.time_remaining
             success = self.save_manager.save_game(
                 self.player, self.city, self.orders_data, self.game_stats
             )
@@ -166,11 +175,13 @@ class CourierGame(arcade.Window):
         self.player = None
         self.city = None
         self.renderer = None
+        self.weather_system = None
         if self.api_client:
             self.api_client.__exit__(None, None, None)
             self.api_client = None
         self.game_start_time = 0
         self.total_play_time = 0
+        self.time_remaining = self.time_limit
         self.state_manager.change_state(GameState.MAIN_MENU)
 
     # Initialization Helpers
@@ -188,6 +199,11 @@ class CourierGame(arcade.Window):
         sx, sy = self.city.get_spawn_position()
         self.player = Player(sx, sy, self.app_config.get("player", {}))
         self.renderer = RayCastRenderer(self.city, self.app_config)
+
+        t0 = time.perf_counter()
+        self.weather_system = WeatherSystem(self.api_client, self.app_config)
+        t1 = time.perf_counter()
+        self._perf_accum_game["weather"] += (t1 - t0)
 
     def _setup_orders(self):
         cache_dir = self.files_conf.get("cache_directory") or os.path.join(os.getcwd(), "api_cache")
@@ -274,7 +290,44 @@ class CourierGame(arcade.Window):
             api_ms = (self._perf_accum_game["api"] / f) * 1000
             inv_ms = (self._perf_accum_game["inventory"] / f) * 1000
             orders_ms = (self._perf_accum_game["orders"] / f) * 1000
-            print(f"[GamePerf] (setup) api={api_ms:.2f}ms inventory={inv_ms:.2f}ms orders={orders_ms:.2f}ms")
+            weather_ms = (self._perf_accum_game["weather"] / f) * 1000
+            print(
+                f"[GamePerf] (setup) api={api_ms:.2f}ms inventory={inv_ms:.2f}ms orders={orders_ms:.2f}ms weather={weather_ms:.2f}ms")
+
+    def _check_game_end_conditions(self):
+        """Verificar condiciones de victoria/derrota"""
+        if not self.player:
+            return
+
+        # Verificar tiempo agotado
+        if self.time_remaining <= 0:
+            self._end_game(False, "¡Tiempo agotado!")
+            return
+
+        # Verificar reputación crítica
+        if self.player.is_reputation_critical():
+            self._end_game(False, "¡Reputación muy baja!")
+            return
+
+        # Verificar victoria (meta de dinero alcanzada)
+        goal_earnings = getattr(self.city, 'goal', self.app_config.get("game", {}).get("goal_earnings", 3000))
+        if self.player.earnings >= goal_earnings:
+            # Calcular bonus por terminar temprano
+            time_bonus = max(0, self.time_remaining / self.time_limit)
+            bonus_message = f"¡Victoria! Bonus de tiempo: +{time_bonus * 100:.0f}%"
+            self._end_game(True, bonus_message)
+            return
+
+    def _end_game(self, victory: bool, message: str):
+        """Terminar el juego con victoria o derrota"""
+        if victory:
+            self.show_notification(f"🎉 {message}")
+        else:
+            self.show_notification(f"💀 {message}")
+
+        # TODO: Aquí se podría cambiar a un estado de GAME_OVER
+        # Por ahora volvemos al menú principal después de un delay
+        self.return_to_main_menu()
 
     # Frame Rendering
 
@@ -294,7 +347,7 @@ class CourierGame(arcade.Window):
     def _draw_game(self):
         if not self.renderer or not self.player:
             return
-        self.renderer.render_world(self.player, weather_system=None)
+        self.renderer.render_world(self.player, weather_system=self.weather_system)
         self.renderer.render_minimap(10, 10, 160, self.player)
         self._draw_hud()
         if self.player and self.city:
@@ -329,6 +382,34 @@ class CourierGame(arcade.Window):
         self.hud_stats.text = f"$ {earnings:.0f} | rep: {reputation:.0f}"
         self.hud_stats.draw()
 
+        # NUEVO: Mostrar información del clima
+        if self.weather_system:
+            weather_info = self.weather_system.get_weather_info()
+            self.hud_weather.position = (10, self.height - 100)
+            weather_name = self.weather_system.get_weather_name()
+            speed_effect = f"{weather_info['speed_multiplier']:.0%}"
+            time_remaining = weather_info['time_remaining']
+            self.hud_weather.text = f"Clima: {weather_name} | Velocidad: {speed_effect} | Cambio en: {time_remaining:.0f}s"
+            self.hud_weather.draw()
+
+        # NUEVO: Mostrar tiempo restante del juego
+        self.hud_time.position = (10, self.height - 120)
+        time_str = format_time(self.time_remaining)
+        goal_earnings = getattr(self.city, 'goal', 3000) if self.city else 3000
+        progress = (earnings / goal_earnings) * 100 if goal_earnings > 0 else 0
+
+        # Color del tiempo basado en urgencia
+        if self.time_remaining < 120:  # Menos de 2 minutos - rojo
+            time_color = arcade.color.RED
+        elif self.time_remaining < 300:  # Menos de 5 minutos - amarillo
+            time_color = arcade.color.YELLOW
+        else:
+            time_color = arcade.color.WHITE
+
+        self.hud_time.color = time_color
+        self.hud_time.text = f"Tiempo: {time_str} | Meta: ${goal_earnings:.0f} ({progress:.1f}%)"
+        self.hud_time.draw()
+
         if self.player:
             bar_width = 200
             bar_height = 20
@@ -340,10 +421,13 @@ class CourierGame(arcade.Window):
             arcade.draw_lrbt_rectangle_filled(bar_x, bar_x + bar_width, bar_y, bar_y + bar_height, arcade.color.BLACK)
             if stamina_percent > 0:
                 green_width = int(bar_width * stamina_percent)
-                arcade.draw_lrbt_rectangle_filled(bar_x, bar_x + green_width, bar_y, bar_y + bar_height, arcade.color.GREEN)
-            arcade.draw_lrbt_rectangle_outline(bar_x, bar_x + bar_width, bar_y, bar_y + bar_height, arcade.color.WHITE, 2)
+                arcade.draw_lrbt_rectangle_filled(bar_x, bar_x + green_width, bar_y, bar_y + bar_height,
+                                                  arcade.color.GREEN)
+            arcade.draw_lrbt_rectangle_outline(bar_x, bar_x + bar_width, bar_y, bar_y + bar_height, arcade.color.WHITE,
+                                               2)
             stamina_text = f"{stamina:.0f}/{max_stamina:.0f}"
-            arcade.draw_text(stamina_text, bar_x + bar_width + 10, bar_y + (bar_height // 2) - 6, arcade.color.WHITE, 12)
+            arcade.draw_text(stamina_text, bar_x + bar_width + 10, bar_y + (bar_height // 2) - 6, arcade.color.WHITE,
+                             12)
 
         if self.player:
             rep_bar_width = 200
@@ -353,14 +437,47 @@ class CourierGame(arcade.Window):
             reputation = self.player.reputation
             max_reputation = 100
             rep_percent = max(0.0, min(1.0, reputation / max_reputation))
-            arcade.draw_lrbt_rectangle_filled(rep_bar_x, rep_bar_x + rep_bar_width, rep_bar_y, rep_bar_y + rep_bar_height, arcade.color.BLACK)
+            arcade.draw_lrbt_rectangle_filled(rep_bar_x, rep_bar_x + rep_bar_width, rep_bar_y,
+                                              rep_bar_y + rep_bar_height, arcade.color.BLACK)
             if rep_percent > 0:
                 color = arcade.color.YELLOW if rep_percent < 0.7 else arcade.color.PINK
                 fill_width = int(rep_bar_width * rep_percent)
-                arcade.draw_lrbt_rectangle_filled(rep_bar_x, rep_bar_x + fill_width, rep_bar_y, rep_bar_y + rep_bar_height, color)
-            arcade.draw_lrbt_rectangle_outline(rep_bar_x, rep_bar_x + rep_bar_width, rep_bar_y, rep_bar_y + rep_bar_height, arcade.color.WHITE, 2)
+                arcade.draw_lrbt_rectangle_filled(rep_bar_x, rep_bar_x + fill_width, rep_bar_y,
+                                                  rep_bar_y + rep_bar_height, color)
+            arcade.draw_lrbt_rectangle_outline(rep_bar_x, rep_bar_x + rep_bar_width, rep_bar_y,
+                                               rep_bar_y + rep_bar_height, arcade.color.WHITE, 2)
             rep_text = f"{reputation:.0f}/100"
-            arcade.draw_text(rep_text, rep_bar_x + rep_bar_width + 10, rep_bar_y + (rep_bar_height // 2) - 6, arcade.color.WHITE, 12)
+            arcade.draw_text(rep_text, rep_bar_x + rep_bar_width + 10, rep_bar_y + (rep_bar_height // 2) - 6,
+                             arcade.color.WHITE, 12)
+
+        # NUEVO: Indicador visual del clima actual
+        if self.weather_system:
+            weather_info = self.weather_system.get_weather_info()
+            weather_icon_x = self.width - 150
+            weather_icon_y = self.height - 50
+
+            # Fondo del indicador
+            arcade.draw_circle_filled(weather_icon_x, weather_icon_y, 20, (0, 0, 0, 150))
+            arcade.draw_circle_outline(weather_icon_x, weather_icon_y, 20, arcade.color.WHITE, 2)
+
+            # Icono simple basado en el clima
+            condition = weather_info['condition']
+            if condition == "clear":
+                arcade.draw_circle_filled(weather_icon_x, weather_icon_y, 12, (255, 255, 0))  # Sol
+            elif condition == "clouds":
+                arcade.draw_circle_filled(weather_icon_x, weather_icon_y, 12, (169, 169, 169))  # Nube gris
+            elif condition in ["rain", "rain_light"]:
+                arcade.draw_circle_filled(weather_icon_x, weather_icon_y, 12, (100, 149, 237))  # Azul lluvia
+            elif condition == "storm":
+                arcade.draw_circle_filled(weather_icon_x, weather_icon_y, 12, (75, 0, 130))  # Morado tormenta
+            elif condition == "fog":
+                arcade.draw_circle_filled(weather_icon_x, weather_icon_y, 12, (220, 220, 220))  # Gris claro niebla
+            elif condition == "wind":
+                arcade.draw_circle_filled(weather_icon_x, weather_icon_y, 12, (173, 216, 230))  # Azul claro viento
+            elif condition == "heat":
+                arcade.draw_circle_filled(weather_icon_x, weather_icon_y, 12, (255, 69, 0))  # Naranja calor
+            elif condition == "cold":
+                arcade.draw_circle_filled(weather_icon_x, weather_icon_y, 12, (175, 238, 238))  # Azul pálido frío
 
         arcade.draw_text("ESC - Pausa", self.width - 100, self.height - 30, arcade.color.WHITE, 12, anchor_x="center")
 
@@ -381,8 +498,9 @@ class CourierGame(arcade.Window):
             api_ms = (self._perf_accum_game["api"] / f) * 1000
             inv_ms = (self._perf_accum_game["inventory"] / f) * 1000
             orders_ms = (self._perf_accum_game["orders"] / f) * 1000
-            print(f"[GamePerf] api={api_ms:.2f}ms inventory={inv_ms:.2f}ms orders={orders_ms:.2f}ms")
-            self._perf_accum_game = {"api": 0.0, "inventory": 0.0, "orders": 0.0, "frames": 0}
+            weather_ms = (self._perf_accum_game["weather"] / f) * 1000
+            print(f"[GamePerf] api={api_ms:.2f}ms inventory={inv_ms:.2f}ms orders={orders_ms:.2f}ms weather={weather_ms:.2f}ms")
+            self._perf_accum_game = {"api": 0.0, "inventory": 0.0, "orders": 0.0, "weather": 0.0, "frames": 0}
             self._last_perf_report_game = now
 
 
@@ -399,11 +517,23 @@ class CourierGame(arcade.Window):
             if self.last_update_time == 0:
                 self.last_update_time = current_time
             else:
-                self.total_play_time += current_time - self.last_update_time
+                frame_time = current_time - self.last_update_time
+                self.total_play_time += frame_time
+                self.time_remaining -= frame_time  # NUEVO: Reducir tiempo restante
                 self.last_update_time = current_time
+
+        # NUEVO: Verificar condiciones de fin de juego
+        self._check_game_end_conditions()
 
         if self.player and hasattr(self.player, 'inventory'):
             self.player.inventory.update_animation(delta_time)
+
+        # NUEVO: Actualizar sistema de clima
+        if self.weather_system and self.player:
+            t0 = time.perf_counter()
+            self.weather_system.update(delta_time, self.player)
+            t1 = time.perf_counter()
+            self._perf_accum_game["weather"] += (t1 - t0)
 
         self.frame_times.append(delta_time)
         if len(self.frame_times) > 240:
@@ -481,8 +611,30 @@ class CourierGame(arcade.Window):
             elif symbol == arcade.key.TAB:
                 # TAB toggles sort mode (Shift also just toggles since only 2 modes)
                 self._toggle_inventory_sort()
-            elif symbol == arcade.key.I:  # ← NUEVA TECLA PARA INVENTARIO
+            elif symbol == arcade.key.I:
                 self._toggle_inventory()
+            # NUEVO: Teclas de debug para clima (solo si debug está activado)
+            elif symbol == arcade.key.KEY_1 and self.debug and self.weather_system:
+                self.weather_system.force_weather_change("clear")
+                self.show_notification("Clima forzado: Despejado")
+            elif symbol == arcade.key.KEY_2 and self.debug and self.weather_system:
+                self.weather_system.force_weather_change("rain")
+                self.show_notification("Clima forzado: Lluvia")
+            elif symbol == arcade.key.KEY_3 and self.debug and self.weather_system:
+                self.weather_system.force_weather_change("storm")
+                self.show_notification("Clima forzado: Tormenta")
+            elif symbol == arcade.key.KEY_4 and self.debug and self.weather_system:
+                self.weather_system.force_weather_change("fog")
+                self.show_notification("Clima forzado: Niebla")
+            elif symbol == arcade.key.KEY_5 and self.debug and self.weather_system:
+                self.weather_system.force_weather_change("wind")
+                self.show_notification("Clima forzado: Viento")
+            elif symbol == arcade.key.KEY_6 and self.debug and self.weather_system:
+                self.weather_system.force_weather_change("heat")
+                self.show_notification("Clima forzado: Calor")
+            elif symbol == arcade.key.KEY_7 and self.debug and self.weather_system:
+                self.weather_system.force_weather_change("cold")
+                self.show_notification("Clima forzado: Frío")
         if state == GameState.MAIN_MENU and self.state_manager.main_menu:
             self.state_manager.main_menu.handle_key_press(symbol, modifiers)
         elif state == GameState.PAUSED and self.state_manager.pause_menu:
@@ -515,6 +667,8 @@ class CourierGame(arcade.Window):
         self.hud_fps.position = (10, height - 20)
         self.hud_stats.position = (10, height - 40)
         self.hud_performance.position = (10, height - 60)
+        self.hud_weather.position = (10, height - 100)
+        self.hud_time.position = (10, height - 120)
 
     # Inventory / Orders Helpers
 

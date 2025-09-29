@@ -1,5 +1,5 @@
 {
-    "debug": false,
+    "debug": true,
     "display": {
         "width": 800,
         "height": 600,
@@ -8,10 +8,10 @@
     },
     "game": {
         "tile_size": 32,
-        "time_limit_minutes": 12,
+        "time_limit_minutes": 15,
         "initial_reputation": 70,
         "initial_stamina": 100,
-        "goal_earnings": 3000
+        "goal_earnings": 1500
     },
     "player": {
         "base_speed": 3.0,
@@ -44,12 +44,14 @@
         "sky": [135, 206, 235],
         "cloud": [255, 255, 255],
         "wall": [180, 180, 180],
-        "wall_dark": [140, 140, 140]
+        "wall_dark": [140, 140, 140],
+        "door": [139, 69, 19]
     },
-    "textures": {
-        "sky": "assets/sky.png",
-        "wall": "assets/wall.png",
-        "floor": "assets/floor.png",
-        "door": "assets/door.png"
+    "weather": {
+        "transition_duration": 4.0,
+        "burst_duration_min": 30,
+        "burst_duration_max": 60,
+        "enable_weather_effects": true,
+        "enable_visual_effects": true
     }
 }
