@@ -353,6 +353,68 @@ class CourierGame(arcade.Window):
         if self.player and self.city:
             self._draw_bike_speedometer()
 
+    def _draw_earnings_progress_top(self, earnings: float, goal_earnings: float):
+        """Centered, compact earnings bar at the top."""
+        bar_width = 260
+        bar_height = 18
+        center_x = self.width // 2
+        bar_x1 = center_x - bar_width // 2
+        bar_x2 = bar_x1 + bar_width
+        bar_y1 = self.height - 44
+        bar_y2 = bar_y1 + bar_height
+
+        # Background
+        arcade.draw_lrbt_rectangle_filled(bar_x1, bar_x2, bar_y1, bar_y2, (0, 0, 0, 180))
+        arcade.draw_lrbt_rectangle_outline(bar_x1, bar_x2, bar_y1, bar_y2, arcade.color.WHITE, 2)
+
+        # Progress
+        progress = max(0.0, min(1.0, (earnings / goal_earnings) if goal_earnings > 0 else 0.0))
+        fill_w = int((bar_x2 - bar_x1 - 2) * progress)
+        if fill_w > 0:
+            if progress < 0.33:
+                fill_color = arcade.color.DARK_RED
+            elif progress < 0.66:
+                fill_color = arcade.color.YELLOW
+            else:
+                fill_color = arcade.color.GREEN
+            arcade.draw_lrbt_rectangle_filled(bar_x1 + 1, bar_x1 + 1 + fill_w, bar_y1 + 1, bar_y2 - 1, fill_color)
+
+        # Label
+        pct = progress * 100.0
+        label = f"${earnings:.0f} / ${goal_earnings:.0f} ({pct:.1f}%)"
+        label_x = bar_x1 + (bar_x2 - bar_x1) // 2
+        label_y = bar_y1 + 2
+        arcade.draw_text(label, label_x, label_y, arcade.color.WHITE, 12, anchor_x="center")
+
+    def _draw_time_countdown_top(self, time_str: str, time_color: tuple):
+        """Top-left countdown text."""
+        arcade.draw_text(f"Time: {time_str}", 10, self.height - 22, time_color, 18)
+
+    def _draw_time_countdown_bottom(self, time_str: str, time_color: tuple):
+        """Bottom-center countdown pill."""
+        pill_width = 220
+        pill_height = 26
+        cx = self.width // 2
+        y_bottom = 10
+        x1 = cx - pill_width // 2
+        x2 = cx + pill_width // 2
+        y1 = y_bottom
+        y2 = y_bottom + pill_height
+
+        arcade.draw_lrbt_rectangle_filled(x1, x2, y1, y2, (0, 0, 0, 160))
+        arcade.draw_lrbt_rectangle_outline(x1, x2, y1, y2, arcade.color.WHITE, 2)
+        arcade.draw_text(f"Remaining: {time_str}", cx, y1 + 5, time_color, 14, anchor_x="center")
+
+    def _speedo_anchor(self):
+        """Approximate speedometer area anchor (center and radius)."""
+        right_margin = 80
+        bottom_margin = 30
+        radius = 70
+        center_x = self.width - right_margin - radius
+        center_y = bottom_margin + 90
+        return center_x, center_y, radius
+
+
     def _draw_hud(self):
         earnings = self.player.earnings if self.player else 0.0
         reputation = self.player.reputation if self.player else 0.0
@@ -382,26 +444,15 @@ class CourierGame(arcade.Window):
         self.hud_stats.text = f"$ {earnings:.0f} | rep: {reputation:.0f}"
         self.hud_stats.draw()
 
-        # NUEVO: Mostrar información del clima
-        if self.weather_system:
-            weather_info = self.weather_system.get_weather_info()
-            self.hud_weather.position = (10, self.height - 100)
-            weather_name = self.weather_system.get_weather_name()
-            speed_effect = f"{weather_info['speed_multiplier']:.0%}"
-            time_remaining = weather_info['time_remaining']
-            self.hud_weather.text = f"Clima: {weather_name} | Velocidad: {speed_effect} | Cambio en: {time_remaining:.0f}s"
-            self.hud_weather.draw()
-
-        # NUEVO: Mostrar tiempo restante del juego
+        # Remaining game time (text + color, top-left info line)
         self.hud_time.position = (10, self.height - 120)
         time_str = format_time(self.time_remaining)
         goal_earnings = getattr(self.city, 'goal', 3000) if self.city else 3000
         progress = (earnings / goal_earnings) * 100 if goal_earnings > 0 else 0
 
-        # Color del tiempo basado en urgencia
-        if self.time_remaining < 120:  # Menos de 2 minutos - rojo
+        if self.time_remaining < 120:
             time_color = arcade.color.RED
-        elif self.time_remaining < 300:  # Menos de 5 minutos - amarillo
+        elif self.time_remaining < 300:
             time_color = arcade.color.YELLOW
         else:
             time_color = arcade.color.WHITE
@@ -410,6 +461,14 @@ class CourierGame(arcade.Window):
         self.hud_time.text = f"Tiempo: {time_str} | Meta: ${goal_earnings:.0f} ({progress:.1f}%)"
         self.hud_time.draw()
 
+        # Top-left countdown (kept) and centered compact earnings bar
+        self._draw_time_countdown_top(time_str, time_color)
+        self._draw_earnings_progress_top(earnings, goal_earnings)
+
+        # NEW: bottom-center countdown pill
+        self._draw_time_countdown_bottom(time_str, time_color)
+
+        # Stamina bar (bottom-right)
         if self.player:
             bar_width = 200
             bar_height = 20
@@ -421,14 +480,12 @@ class CourierGame(arcade.Window):
             arcade.draw_lrbt_rectangle_filled(bar_x, bar_x + bar_width, bar_y, bar_y + bar_height, arcade.color.BLACK)
             if stamina_percent > 0:
                 green_width = int(bar_width * stamina_percent)
-                arcade.draw_lrbt_rectangle_filled(bar_x, bar_x + green_width, bar_y, bar_y + bar_height,
-                                                  arcade.color.GREEN)
-            arcade.draw_lrbt_rectangle_outline(bar_x, bar_x + bar_width, bar_y, bar_y + bar_height, arcade.color.WHITE,
-                                               2)
+                arcade.draw_lrbt_rectangle_filled(bar_x, bar_x + green_width, bar_y, bar_y + bar_height, arcade.color.GREEN)
+            arcade.draw_lrbt_rectangle_outline(bar_x, bar_x + bar_width, bar_y, bar_y + bar_height, arcade.color.WHITE, 2)
             stamina_text = f"{stamina:.0f}/{max_stamina:.0f}"
-            arcade.draw_text(stamina_text, bar_x + bar_width + 10, bar_y + (bar_height // 2) - 6, arcade.color.WHITE,
-                             12)
+            arcade.draw_text(stamina_text, bar_x + bar_width + 10, bar_y + (bar_height // 2) - 6, arcade.color.WHITE, 12)
 
+        # Reputation bar (bottom-right)
         if self.player:
             rep_bar_width = 200
             rep_bar_height = 20
@@ -437,48 +494,17 @@ class CourierGame(arcade.Window):
             reputation = self.player.reputation
             max_reputation = 100
             rep_percent = max(0.0, min(1.0, reputation / max_reputation))
-            arcade.draw_lrbt_rectangle_filled(rep_bar_x, rep_bar_x + rep_bar_width, rep_bar_y,
-                                              rep_bar_y + rep_bar_height, arcade.color.BLACK)
+            arcade.draw_lrbt_rectangle_filled(rep_bar_x, rep_bar_x + rep_bar_width, rep_bar_y, rep_bar_y + rep_bar_height, arcade.color.BLACK)
             if rep_percent > 0:
                 color = arcade.color.YELLOW if rep_percent < 0.7 else arcade.color.PINK
                 fill_width = int(rep_bar_width * rep_percent)
-                arcade.draw_lrbt_rectangle_filled(rep_bar_x, rep_bar_x + fill_width, rep_bar_y,
-                                                  rep_bar_y + rep_bar_height, color)
-            arcade.draw_lrbt_rectangle_outline(rep_bar_x, rep_bar_x + rep_bar_width, rep_bar_y,
-                                               rep_bar_y + rep_bar_height, arcade.color.WHITE, 2)
+                arcade.draw_lrbt_rectangle_filled(rep_bar_x, rep_bar_x + fill_width, rep_bar_y, rep_bar_y + rep_bar_height, color)
+            arcade.draw_lrbt_rectangle_outline(rep_bar_x, rep_bar_x + rep_bar_width, rep_bar_y, rep_bar_y + rep_bar_height, arcade.color.WHITE, 2)
             rep_text = f"{reputation:.0f}/100"
-            arcade.draw_text(rep_text, rep_bar_x + rep_bar_width + 10, rep_bar_y + (rep_bar_height // 2) - 6,
-                             arcade.color.WHITE, 12)
+            arcade.draw_text(rep_text, rep_bar_x + rep_bar_width + 10, rep_bar_y + (rep_bar_height // 2) - 6, arcade.color.WHITE, 12)
 
-        # NUEVO: Indicador visual del clima actual
-        if self.weather_system:
-            weather_info = self.weather_system.get_weather_info()
-            weather_icon_x = self.width - 150
-            weather_icon_y = self.height - 50
-
-            # Fondo del indicador
-            arcade.draw_circle_filled(weather_icon_x, weather_icon_y, 20, (0, 0, 0, 150))
-            arcade.draw_circle_outline(weather_icon_x, weather_icon_y, 20, arcade.color.WHITE, 2)
-
-            # Icono simple basado en el clima
-            condition = weather_info['condition']
-            if condition == "clear":
-                arcade.draw_circle_filled(weather_icon_x, weather_icon_y, 12, (255, 255, 0))  # Sol
-            elif condition == "clouds":
-                arcade.draw_circle_filled(weather_icon_x, weather_icon_y, 12, (169, 169, 169))  # Nube gris
-            elif condition in ["rain", "rain_light"]:
-                arcade.draw_circle_filled(weather_icon_x, weather_icon_y, 12, (100, 149, 237))  # Azul lluvia
-            elif condition == "storm":
-                arcade.draw_circle_filled(weather_icon_x, weather_icon_y, 12, (75, 0, 130))  # Morado tormenta
-            elif condition == "fog":
-                arcade.draw_circle_filled(weather_icon_x, weather_icon_y, 12, (220, 220, 220))  # Gris claro niebla
-            elif condition == "wind":
-                arcade.draw_circle_filled(weather_icon_x, weather_icon_y, 12, (173, 216, 230))  # Azul claro viento
-            elif condition == "heat":
-                arcade.draw_circle_filled(weather_icon_x, weather_icon_y, 12, (255, 69, 0))  # Naranja calor
-            elif condition == "cold":
-                arcade.draw_circle_filled(weather_icon_x, weather_icon_y, 12, (175, 238, 238))  # Azul pálido frío
-
+        # Weather icon: to the right of the speedometer (above the bars)
+        self._draw_weather_icon_right_of_speedometer()
         arcade.draw_text("ESC - Pausa", self.width - 100, self.height - 30, arcade.color.WHITE, 12, anchor_x="center")
 
     def _draw_notifications(self):
@@ -781,3 +807,186 @@ class CourierGame(arcade.Window):
         }
         state_color = state_colors.get(self.player.state, arcade.color.WHITE)
         arcade.draw_circle_filled(center_x, center_y + 18, 4, state_color)
+
+    def _draw_time_countdown_top(self, time_str: str, time_color: tuple):
+        """Top-left countdown text."""
+        arcade.draw_text(f"Time: {time_str}", 10, self.height - 22, time_color, 18)
+
+    def _draw_time_countdown_bottom(self, time_str: str, time_color: tuple):
+        """Bottom-center countdown pill."""
+        pill_width = 220
+        pill_height = 26
+        cx = self.width // 2
+        y_bottom = 10
+        x1 = cx - pill_width // 2
+        x2 = cx + pill_width // 2
+        y1 = y_bottom
+        y2 = y_bottom + pill_height
+
+        arcade.draw_lrbt_rectangle_filled(x1, x2, y1, y2, (0, 0, 0, 160))
+        arcade.draw_lrbt_rectangle_outline(x1, x2, y1, y2, arcade.color.WHITE, 2)
+        arcade.draw_text(f"Remaining: {time_str}", cx, y1 + 5, time_color, 14, anchor_x="center")
+
+    def _speedo_anchor(self):
+        """Approximate speedometer area anchor (center and radius)."""
+        right_margin = 80
+        bottom_margin = 30
+        radius = 70
+        center_x = self.width - right_margin - radius
+        center_y = bottom_margin + 90
+        return center_x, center_y, radius
+
+    # python
+    # file: 'game/game.py'
+
+    def _draw_weather_icon_chip_bg(self, x: int, y: int, w: int, h: int):
+        """Draw the icon chip background at top-left (x,y)."""
+        arcade.draw_lrbt_rectangle_filled(x, x + w, y, y + h, (0, 0, 0, 140))
+        arcade.draw_lrbt_rectangle_outline(x, x + w, y, y + h, arcade.color.WHITE, 2)
+
+    def _draw_weather_cloud(self, cx: int, cy: int, scale: float = 1.0, color=(255, 255, 255)):
+        """Draw a cloud centered at (cx, cy)."""
+        w = int(40 * scale)
+        h = int(20 * scale)
+        arcade.draw_circle_filled(cx - w // 3, cy, h // 2 + 6, color)
+        arcade.draw_circle_filled(cx, cy + 4, h // 2 + 8, color)
+        arcade.draw_circle_filled(cx + w // 3, cy, h // 2 + 6, color)
+        arcade.draw_ellipse_filled(cx, cy - 4, w, h, color)
+
+    def _draw_weather_rain(self, cx: int, cy: int, drops: int = 6, spread: int = 34, length: int = 10,
+                           color=(120, 180, 255)):
+        """Draw rain centered horizontally at (cx, cy)."""
+        left = cx - spread // 2
+        step = max(1, spread // max(1, drops - 1))
+        for i in range(drops):
+            x = left + i * step
+            y1r = cy - 6
+            y2r = y1r - int(length * (0.8 + 0.4 * random.random()))
+            arcade.draw_line(x, y1r, x, y2r, color, 2)
+
+    def _draw_weather_lightning(self, cx: int, cy: int, color=(255, 255, 100)):
+        """Draw a simple lightning bolt around (cx, cy)."""
+        p1 = (cx - 6, cy + 6)
+        p2 = (cx + 0, cy + 2)
+        p3 = (cx - 3, cy - 2)
+        p4 = (cx + 5, cy - 8)
+        arcade.draw_line(*p1, *p2, color, 3)
+        arcade.draw_line(*p2, *p3, color, 3)
+        arcade.draw_line(*p3, *p4, color, 3)
+
+    def _draw_weather_sun(self, cx: int, cy: int, radius: int = 10, color=(255, 220, 100)):
+        """Draw a sun centered at (cx, cy)."""
+        arcade.draw_circle_filled(cx, cy, radius, color)
+        rays = 8
+        for i in range(rays):
+            ang = i * (360 / rays)
+            rad = math.radians(ang)
+            x1r = cx + math.cos(rad) * (radius + 2)
+            y1r = cy + math.sin(rad) * (radius + 2)
+            x2r = cx + math.cos(rad) * (radius + 8)
+            y2r = cy + math.sin(rad) * (radius + 8)
+            arcade.draw_line(x1r, y1r, x2r, y2r, color, 2)
+
+    def _draw_weather_fog(self, cx: int, cy: int, bands: int = 3,
+                          band_width: int = 52, band_height: int = 6,
+                          color=(220, 220, 220, 160)):
+        """Draw fog as soft horizontal bands around (cx, cy)."""
+        if bands <= 0:
+            return
+        top = cy + 10
+        for i in range(bands):
+            yb = top - i * 10
+            arcade.draw_lrbt_rectangle_filled( cx - band_width // 2, cx + band_width // 2, yb - band_height // 2, yb + band_height // 2, color)
+
+    def _draw_weather_wind(self, cx: int, cy: int, swirls: int = 2, color=(200, 220, 255)):
+        """Draw wind swirls around (cx, cy)."""
+        for i in range(swirls):
+            yb = cy + (i * 8) - 6
+            arcade.draw_arc_outline(cx, yb, 40, 16, color, 10, 170, 2)
+            arcade.draw_arc_outline(cx + 8, yb - 4, 28, 12, color, 10, 170, 2)
+
+    def _draw_weather_snowflake(self, cx: int, cy: int, size: int = 10, color=(220, 240, 255)):
+        """Draw a simple asterisk snowflake centered at (cx, cy)."""
+        for ang in (0, 60, 120):
+            rad = math.radians(ang)
+            dx = math.cos(rad) * size
+            dy = math.sin(rad) * size
+            arcade.draw_line(cx - dx, cy - dy, cx + dx, cy + dy, color, 2)
+
+    def _draw_weather_icon_at(self, x: int, y: int, width: int = 64, height: int = 48):
+        """Draw the weather icon chip at top-left (x,y)."""
+        if not self.weather_system:
+            return
+
+        info = self.weather_system.get_weather_info()
+        cond = str(info.get("condition", "clear")).lower()
+        intensity = float(info.get("intensity", 0.2))
+        cloud_color = tuple(info.get("cloud_color", (255, 255, 255)))
+        sky_color = tuple(info.get("sky_color", (135, 206, 235)))
+
+        # Background chip
+        self._draw_weather_icon_chip_bg(x, y, width, height)
+
+        # Icon center
+        icx = x + width // 2
+        icy = y + height // 2
+
+        # Scale by intensity
+        t = max(0.1, min(1.0, intensity))
+        rain_drops = 4 + int(6 * t)
+        cloud_scale = 0.9 + 0.4 * t
+
+        # Draw by condition
+        if cond in ("clear",):
+            arcade.draw_circle_filled(icx, icy, 18, (sky_color[0], sky_color[1], sky_color[2], 60))
+            self._draw_weather_sun(icx, icy, radius=10 + int(4 * t), color=(255, 220, 100))
+        elif cond in ("clouds",):
+            self._draw_weather_cloud(icx, icy, scale=cloud_scale, color=cloud_color)
+        elif cond in ("rain_light",):
+            self._draw_weather_cloud(icx, icy, scale=0.95, color=cloud_color)
+            self._draw_weather_rain(icx, icy - 6, drops=rain_drops // 2, length=8 + int(6 * t))
+        elif cond in ("rain",):
+            self._draw_weather_cloud(icx, icy, scale=1.05, color=cloud_color)
+            self._draw_weather_rain(icx, icy - 6, drops=rain_drops, length=10 + int(10 * t))
+        elif cond in ("storm",):
+            self._draw_weather_cloud(icx, icy + 2, scale=1.05, color=(80, 80, 80))
+            self._draw_weather_rain(icx, icy - 4, drops=rain_drops, length=12 + int(10 * t), color=(140, 180, 255))
+            self._draw_weather_lightning(icx, icy - 2)
+        elif cond in ("fog",):
+            self._draw_weather_fog(icx, icy, bands=3 + (1 if t > 0.6 else 0))
+
+        elif cond in ("wind",):
+            self._draw_weather_cloud(icx - 6, icy + 2, scale=0.8, color=cloud_color)
+            self._draw_weather_wind(icx + 6, icy - 2)
+        elif cond in ("heat",):
+            self._draw_weather_sun(icx, icy, radius=11 + int(3 * t), color=(255, 210, 90))
+            arcade.draw_arc_outline(icx, icy + 10, 36, 10, (255, 220, 150), 0, 180, 2)
+        elif cond in ("cold",):
+            self._draw_weather_cloud(icx, icy + 6, scale=0.9, color=cloud_color)
+            self._draw_weather_snowflake(icx, icy - 8, size=8 + int(4 * t))
+        else:
+            self._draw_weather_cloud(icx, icy, scale=0.9, color=cloud_color)
+            arcade.draw_circle_filled(icx + 18, icy - 12, 3, arcade.color.WHITE)
+
+    def _draw_weather_icon_right_of_speedometer(self):
+        """Compute position relative to speedometer and draw the weather icon chip."""
+        if not self.weather_system:
+            return
+
+        # Chip size
+        chip_w, chip_h = 64, 48
+
+        # Base position: to the right of the speedometer
+        cx, cy, r = self._speedo_anchor()
+        base_x = cx + r + 12  # to the right edge of the dial
+        base_y_center = cy + 28  # slightly above dial center (over the bars)
+
+        x = int(base_x - 100)
+        x = max(10, min(self.width - chip_w - 10, x))
+
+        y = int(base_y_center - chip_h // 2)
+        y = max(10, min(self.height - chip_h - 10, y))
+
+        # Draw at computed position
+        self._draw_weather_icon_at(x, y, chip_w, chip_h)
+

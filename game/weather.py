@@ -3,6 +3,7 @@ import json
 import time
 import random
 import math
+from game.utils import  lerp
 from typing import Dict, Any, List, Tuple, Optional
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -369,7 +370,7 @@ class WeatherSystem:
             return current_mult
 
         previous_mult = self.speed_multipliers.get(self.previous_condition, 1.0)
-        return self._lerp(previous_mult, current_mult, self.transition_progress)
+        return lerp(previous_mult, current_mult, self.transition_progress)
 
     def _get_interpolated_stamina_drain(self) -> float:
         """Obtener drenaje de resistencia interpolado durante transición"""
@@ -379,11 +380,8 @@ class WeatherSystem:
             return current_drain
 
         previous_drain = self.stamina_drains.get(self.previous_condition, 0.0)
-        return self._lerp(previous_drain, current_drain, self.transition_progress)
+        return lerp(previous_drain, current_drain, self.transition_progress)
 
-    def _lerp(self, a: float, b: float, t: float) -> float:
-        """Interpolación lineal"""
-        return a + t * (b - a)
 
     @property
     def sky_color(self) -> Tuple[int, int, int]:
@@ -396,9 +394,9 @@ class WeatherSystem:
         previous_color = self.sky_colors.get(self.previous_condition, (135, 206, 235))
 
         # Interpolar cada componente RGB
-        r = int(self._lerp(previous_color[0], current_color[0], self.transition_progress))
-        g = int(self._lerp(previous_color[1], current_color[1], self.transition_progress))
-        b = int(self._lerp(previous_color[2], current_color[2], self.transition_progress))
+        r = int(lerp(previous_color[0], current_color[0], self.transition_progress))
+        g = int(lerp(previous_color[1], current_color[1], self.transition_progress))
+        b = int(lerp(previous_color[2], current_color[2], self.transition_progress))
 
         return (r, g, b)
 
@@ -413,9 +411,9 @@ class WeatherSystem:
         previous_color = self.cloud_colors.get(self.previous_condition, (255, 255, 255))
 
         # Interpolar cada componente RGB
-        r = int(self._lerp(previous_color[0], current_color[0], self.transition_progress))
-        g = int(self._lerp(previous_color[1], current_color[1], self.transition_progress))
-        b = int(self._lerp(previous_color[2], current_color[2], self.transition_progress))
+        r = int(lerp(previous_color[0], current_color[0], self.transition_progress))
+        g = int(lerp(previous_color[1], current_color[1], self.transition_progress))
+        b = int(lerp(previous_color[2], current_color[2], self.transition_progress))
 
         return (r, g, b)
 
@@ -456,7 +454,8 @@ class WeatherSystem:
 
             self.current_condition = condition
             self.current_intensity = intensity if intensity is not None else random.uniform(0.1, 1.0)
-            self.burst_duration = random.uniform(45.0, 90.0)
+            # Use configured range instead of hardcoded 45–90
+            self.burst_duration = random.uniform(self.burst_duration_min, self.burst_duration_max)
 
             self.transitioning = True
             self.transition_progress = 0.0
@@ -464,6 +463,7 @@ class WeatherSystem:
 
             if self.debug:
                 print(f"Clima forzado a: {condition} (intensidad: {self.current_intensity})")
+
 
     def _save_json(self, data: Dict[str, Any], filepath: str) -> bool:
         """Guardar datos JSON"""
