@@ -2,7 +2,8 @@
 import math
 from typing import Dict, Any, Tuple, Optional
 from .utils import clamp, normalize_angle
-from .inventory import Order, Inventory
+from .inventory import Inventory
+from game.orders import Order 
 
 class PlayerState:
     NORMAL = "normal"      # >30 stamina
@@ -47,14 +48,14 @@ class Player:
         if success:
             self.set_inventory_weight(self.inventory.current_weight)
         return success
-    
+
     def remove_order_from_inventory(self, order_id: str) -> Optional[Order]:
         """quita un pedido del inventario y actualiza el peso total"""
         removed_order = self.inventory.remove_order(order_id)
         if removed_order:
             self.set_inventory_weight(self.inventory.current_weight)
         return removed_order
-    
+
     def get_current_order(self) -> Optional[Order]:
         """obtiene el pedido que se agarro actualmente"""
         return self.inventory.get_current_order()

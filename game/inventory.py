@@ -1,33 +1,8 @@
 import arcade
 from typing import List, Optional, Dict, Any
-from dataclasses import dataclass
+from game.orders import Order
 from datetime import datetime
-
-@dataclass
-class Order:
-    """Representa un pedido con su ID, destino y peso"""
-    id: str
-    pickup_location: List[int] # [x, y]
-    dropoff_location: List[int] # [x, y]
-    payout: float
-    weight: float
-    deadline: str
-    priority: int
-    release_time: int
-    accepted_time: Optional[datetime] = None
-    status: str = "pending"  # pending, in_progress, delivered, cancelled
-
-    def is_overdue(self, current_time: datetime) -> bool:
-        """Determina si el pedido está atrasado según el tiempo actual"""
-        return self.get_time_remaining(current_time) <= 0
-
-    def get_time_remaining(self, current_time: datetime) -> float:
-        """Obtiene el tiempo restante para el pedido"""
-        deadline = datetime.fromisoformat(self.deadline.replace("Z", "+00:00"))
-        return (deadline - current_time).total_seconds()
     
-
-
 class Inventory:    
     """Maneja el inventario del jugador, incluyendo capacidad y peso"""
     def __init__(self, max_weight: float = 10.0):
@@ -61,7 +36,6 @@ class Inventory:
         """Agrega un pedido al inventario si no excede el peso máximo"""
         try:
             if self.current_weight + order.weight <= self.max_weight:
-                order.accepted_time = datetime.now()
                 order.status = "in_progress"
                 self.orders.append(order)
                 self.sort_orders()  # Reordenar al agregar una nueva orden
@@ -87,7 +61,7 @@ class Inventory:
         except Exception as e:
             print(f"Error removiendo pedido: {e}")
             return None
-    
+
     def get_current_order(self) -> Optional[Order]:
         """Obtiene el pedido actualmente seleccionado"""
         if not self.orders:
@@ -133,8 +107,6 @@ class Inventory:
                 self.sort_by_priority()
             elif self.sort_mode == "deadline":
                 self.sort_by_deadline()
-            elif self.sort_mode == "payout":
-                self.sort_by_payout()
         except Exception as e:
             print(f"Error en _sort_orders: {e}")
 
@@ -236,7 +208,7 @@ class Inventory:
         if not self.orders:
             arcade.draw_text(
                 "No hay pedidos",
-                current_x + width // 2 - 40,
+                current_x + width // 2 + 10,
                 current_y + height - 50,
                 (200, 200, 200, alpha),
                 12
@@ -262,7 +234,7 @@ class Inventory:
             if i == self.current_index:
                 arcade.draw_lbwh_rectangle_filled(
                     current_x + width // 2,
-                    y_pos + 5,
+                    y_pos - 2,
                     width - 20,
                     16,
                     (255, 0, 0, int(128 * self.animation_progress))
