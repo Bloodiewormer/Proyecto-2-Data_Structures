@@ -10,12 +10,17 @@ class OrderStatus:
     DELIVERED = "delivered"
     CANCELLED = "cancelled"
     EXPIRED = "expired"
+    IN_PROGRESS = "in_progress"
 
 
 class Order:
     def __init__(self, order_id: str, pickup_pos: Tuple[int, int],
                  dropoff_pos: Tuple[int, int], payment: float,
-                 time_limit: float = 600.0):
+                 time_limit: float = 600.0,
+                 weight: float = None,
+                 priority: int = 0,
+                 deadline: str = "",
+                 release_time: int = 0):
         self.id = order_id
         self.pickup_pos = pickup_pos
         self.dropoff_pos = dropoff_pos
@@ -31,8 +36,26 @@ class Order:
 
         # Datos del pedido
         self.description = "Entrega urgente"
-        self.weight = random.uniform(0.5, 3.0)  # kg
+        if weight is not None:
+            self.weight = weight
+        else:
+            self.weight = random.uniform(0.5, 3.0)  # kg
+        
         self.fragile = random.choice([True, False])
+
+        # Nuevos atributos para compatibilidad con el inventario
+        self.priority = priority
+        self.deadline = deadline
+        self.release_time = release_time
+        self.payout = payment  # Alias para payment para compatibilidad
+
+    @property
+    def pickup_location(self):
+        return list(self.pickup_pos)
+    
+    @property
+    def dropoff_location(self):
+        return list(self.dropoff_pos)
 
     def to_dict(self) -> Dict[str, Any]:
         """Serializar orden para guardado"""
@@ -49,7 +72,10 @@ class Order:
             "delivered_at": self.delivered_at.isoformat() if self.delivered_at else None,
             "description": self.description,
             "weight": self.weight,
-            "fragile": self.fragile
+            "fragile": self.fragile,
+            "priority": self.priority,
+            "deadline": self.deadline,
+            "release_time": self.release_time
         }
 
     @classmethod
@@ -60,7 +86,11 @@ class Order:
             tuple(data["pickup_pos"]),
             tuple(data["dropoff_pos"]),
             data["payment"],
-            data["time_limit"]
+            data["time_limit"],
+            weight=data.get("weight"),
+            priority=data.get("priority", 0),
+            deadline=data.get("deadline", ""),
+            release_time=data.get("release_time", 0)
         )
 
         order.status = data["status"]
@@ -73,7 +103,6 @@ class Order:
             order.delivered_at = datetime.fromisoformat(data["delivered_at"])
 
         order.description = data.get("description", "Entrega urgente")
-        order.weight = data.get("weight", 1.0)
         order.fragile = data.get("fragile", False)
 
         return order
@@ -89,7 +118,7 @@ class Order:
 
     def pickup(self):
         """Marcar orden como recogida"""
-        if self.status == OrderStatus.PENDING:
+        if self.status == OrderStatus.IN_PROGRESS:
             self.status = OrderStatus.PICKED_UP
             self.picked_up_at = datetime.now()
 
