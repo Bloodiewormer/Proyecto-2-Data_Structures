@@ -6,6 +6,7 @@ import random
 import os
 import json
 
+
 from api.client import APIClient
 from game.city import CityMap
 from game.player import Player
@@ -15,6 +16,7 @@ from game.utils import find_nearest_building, format_time
 from game.gamestate import GameStateManager, GameState, MainMenu, PauseMenu
 from game.saveManager import saveManager
 from .inventory import Order
+from game.audio import AudioManager
 
 
 class CourierGame(arcade.Window):
@@ -27,6 +29,7 @@ class CourierGame(arcade.Window):
 
         self.state_manager = GameStateManager(self)
         self.save_manager = saveManager(app_config)
+        self.audio_manager = AudioManager(app_config)
 
         self.backward_factor = 0.3
         self.last_move_scale = 0.0
@@ -94,6 +97,9 @@ class CourierGame(arcade.Window):
     # Game Lifecycle / State Entry
     def setup(self):
         self.state_manager.change_state(GameState.MAIN_MENU)
+        menu_music = self.app_config.get("audio", {}).get("menu_music")
+        if menu_music:
+            self.audio_manager.play_music(menu_music, loop=True)
 
     def start_new_game(self):
         try:
@@ -108,6 +114,9 @@ class CourierGame(arcade.Window):
                 "level": 1
             }
             self.state_manager.change_state(GameState.PLAYING)
+            game_music = self.app_config.get("audio", {}).get("game_music")
+            if game_music:
+                self.audio_manager.play_music(game_music, loop=True)
             if self.debug:
                 print("Nueva partida iniciada")
             self.show_notification("Nueva partida iniciada")
@@ -121,22 +130,44 @@ class CourierGame(arcade.Window):
             if not save_data:
                 self.show_notification("Error al cargar partida")
                 return
+
             self._initialize_game_systems()
+
             if "player" in save_data:
                 self.save_manager.restore_player(self.player, save_data["player"])
+
             if "city" in save_data:
                 self.save_manager.restore_city(self.city, save_data["city"])
+
             if "orders" in save_data:
                 self.orders_data = save_data["orders"]
+
             if "game_stats" in save_data:
                 self.game_stats = save_data["game_stats"]
                 self.total_play_time = self.game_stats.get("play_time", 0)
                 self.time_remaining = self.game_stats.get("time_remaining", self.time_limit)
+
             self._setup_orders()
+
+
+            self.game_start_time = time.time() - self.total_play_time
+            self.last_update_time = time.time()
+
             self.state_manager.change_state(GameState.PLAYING)
             self.show_notification("Partida cargada")
+
+            game_music = self.app_config.get("audio", {}).get("game_music")
+            if game_music:
+                self.audio_manager.play_music(game_music, loop=True)
+
+            if self.debug:
+                print(f"Partida cargada - Tiempo restante: {self.time_remaining:.1f}s")
+                print(f"Total jugado: {self.total_play_time:.1f}s")
+
         except Exception as e:
             print(f"Error al cargar partida: {e}")
+            import traceback
+            traceback.print_exc()
             self.show_notification("Error al cargar partida")
             self.state_manager.change_state(GameState.MAIN_MENU)
 
@@ -144,21 +175,36 @@ class CourierGame(arcade.Window):
         try:
             if not self.player or not self.city:
                 return False
+
+            # Actualizar estadísticas antes de guardar
             current_time = time.time()
-            if self.game_start_time > 0:
-                self.total_play_time += current_time - self.last_update_time
-                self.game_stats["play_time"] = self.total_play_time
-                self.game_stats["time_remaining"] = self.time_remaining
+            if self.game_start_time > 0 and self.last_update_time > 0:
+                frame_time = current_time - self.last_update_time
+                self.total_play_time += frame_time
+                self.last_update_time = current_time  # Actualizar para que no haya saltos
+
+            # Guardar estadísticas actualizadas
+            self.game_stats["play_time"] = self.total_play_time
+            self.game_stats["time_remaining"] = self.time_remaining
+
             success = self.save_manager.save_game(
                 self.player, self.city, self.orders_data, self.game_stats
             )
+
             if success:
                 self.show_notification("Partida guardada")
+                if self.debug:
+                    print(f"Guardado - Tiempo restante: {self.time_remaining:.1f}s")
+                    print(f"Total jugado: {self.total_play_time:.1f}s")
             else:
                 self.show_notification("Error al guardar")
+
             return success
+
         except Exception as e:
             print(f"Error crítico al guardar: {e}")
+            import traceback
+            traceback.print_exc()
             self.show_notification("Error al guardar")
             return False
 
@@ -166,10 +212,14 @@ class CourierGame(arcade.Window):
     def pause_game(self):
         if self.state_manager.current_state == GameState.PLAYING:
             self.state_manager.change_state(GameState.PAUSED)
+            if hasattr(self, 'audio_manager'):
+                self.audio_manager.pause_music()
 
     def resume_game(self):
         if self.state_manager.current_state == GameState.PAUSED:
             self.state_manager.change_state(GameState.PLAYING)
+            if hasattr(self, 'audio_manager'):
+                self.audio_manager.resume_music()
 
     def return_to_main_menu(self):
         self.player = None
@@ -182,7 +232,14 @@ class CourierGame(arcade.Window):
         self.game_start_time = 0
         self.total_play_time = 0
         self.time_remaining = self.time_limit
+
+        # Cambiar estado PRIMERO
         self.state_manager.change_state(GameState.MAIN_MENU)
+
+        # LUEGO cambiar música del menú
+        menu_music = self.app_config.get("audio", {}).get("menu_music")
+        if menu_music:
+            self.audio_manager.play_music(menu_music, loop=True)
 
     # Initialization Helpers
 
@@ -342,7 +399,12 @@ class CourierGame(arcade.Window):
             self._draw_game()
             if self.state_manager.pause_menu:
                 self.state_manager.pause_menu.draw()
+        elif state == GameState.SETTINGS:
+            if self.state_manager.settings_menu:
+                self.state_manager.settings_menu.draw()
+
         self._draw_notifications()
+
 
     def _draw_game(self):
         if not self.renderer or not self.player:
@@ -533,10 +595,21 @@ class CourierGame(arcade.Window):
     # Per-Frame Update
 
     def on_update(self, delta_time: float):
+        # Actualizar notificaciones siempre (independiente del estado)
         if self.notification_timer > 0:
             self.notification_timer -= delta_time
+
+        # Actualizar menú de settings si está activo
+        if self.state_manager.current_state == GameState.SETTINGS:
+            if self.state_manager.settings_menu:
+                self.state_manager.settings_menu.update(delta_time)
+            return  # No procesar el resto si estamos en settings
+
+        # Si no estamos jugando, no actualizar el juego
         if self.state_manager.current_state != GameState.PLAYING:
             return
+
+        # --- A PARTIR DE AQUÍ SOLO SE EJECUTA SI state == PLAYING ---
 
         current_time = time.time()
         if self.game_start_time > 0:
@@ -545,16 +618,17 @@ class CourierGame(arcade.Window):
             else:
                 frame_time = current_time - self.last_update_time
                 self.total_play_time += frame_time
-                self.time_remaining -= frame_time  # NUEVO: Reducir tiempo restante
+                self.time_remaining -= frame_time  # Reducir tiempo restante
                 self.last_update_time = current_time
 
-        # NUEVO: Verificar condiciones de fin de juego
+        # Verificar condiciones de fin de juego
         self._check_game_end_conditions()
 
+        # Actualizar animación del inventario
         if self.player and hasattr(self.player, 'inventory'):
             self.player.inventory.update_animation(delta_time)
 
-        # NUEVO: Actualizar sistema de clima
+        # Actualizar sistema de clima
         if self.weather_system and self.player:
             t0 = time.perf_counter()
             self.weather_system.update(delta_time, self.player)
@@ -568,11 +642,13 @@ class CourierGame(arcade.Window):
         if not self.player or not self.city:
             return
 
+        # Rotación del jugador
         if self._turn_left:
             self.player.turn_left(delta_time)
         if self._turn_right:
             self.player.turn_right(delta_time)
 
+        # Movimiento del jugador
         prev_x, prev_y = self.player.x, self.player.y
         dx = dy = 0.0
         if self._move_forward or self._move_backward:
@@ -586,6 +662,7 @@ class CourierGame(arcade.Window):
         if dx != 0.0 or dy != 0.0:
             self.player.move(dx, dy, delta_time, self.city)
 
+        # Calcular velocidad para el speedometer
         moved = (abs(self.player.x - prev_x) > 1e-5) or (abs(self.player.y - prev_y) > 1e-5)
         if moved:
             base_speed = self.player.calculate_effective_speed(self.city)
@@ -596,6 +673,7 @@ class CourierGame(arcade.Window):
             target_speed = 0.0
             self.last_move_scale = 0.0
 
+        # Suavizar velocidad mostrada
         speed_diff = target_speed - self.displayed_speed
         self.displayed_speed += speed_diff * self.speed_smoothing * delta_time
         if abs(speed_diff) < 0.01:
@@ -603,23 +681,31 @@ class CourierGame(arcade.Window):
         if not moved and abs(self.displayed_speed) < 0.05:
             self.displayed_speed = 0.0
 
+        # Actualizar estado del jugador
         self.player.update(delta_time)
-
 
     # Input Handling
 
     def on_key_press(self, symbol: int, modifiers: int):
-        # ESC handling
+        # ESC handling PRIMERO (antes de verificar estados)
         if symbol == arcade.key.ESCAPE:
-            if self.state_manager.current_state == GameState.PLAYING:
+            state = self.state_manager.current_state
+
+            if state == GameState.PLAYING:
                 self.pause_game()
-            elif self.state_manager.current_state == GameState.PAUSED:
+            elif state == GameState.PAUSED:
                 self.resume_game()
-            elif self.state_manager.current_state == GameState.MAIN_MENU:
+            elif state == GameState.SETTINGS:
+                # En settings, ESC vuelve al menú anterior
+                if self.state_manager.settings_menu:
+                    self.state_manager.settings_menu.handle_key_press(symbol, modifiers)
+            elif state == GameState.MAIN_MENU:
                 arcade.exit()
             return
 
+        # Manejar input según el estado actual
         state = self.state_manager.current_state
+
         if state == GameState.PLAYING:
             if symbol in (arcade.key.W, arcade.key.UP):
                 self._move_forward = True
@@ -632,41 +718,32 @@ class CourierGame(arcade.Window):
             elif symbol == arcade.key.F5:
                 self.save_game()
             elif symbol == arcade.key.Q:
-                # Q cycles orders; Shift+Q backwards
                 self._cycle_inventory_order(reverse=bool(modifiers & arcade.key.MOD_SHIFT))
             elif symbol == arcade.key.TAB:
-                # TAB toggles sort mode (Shift also just toggles since only 2 modes)
                 self._toggle_inventory_sort()
             elif symbol == arcade.key.I:
                 self._toggle_inventory()
-            # NUEVO: Teclas de debug para clima (solo si debug está activado)
+            # Debug keys para clima
             elif symbol == arcade.key.KEY_1 and self.debug and self.weather_system:
                 self.weather_system.force_weather_change("clear")
                 self.show_notification("Clima forzado: Despejado")
             elif symbol == arcade.key.KEY_2 and self.debug and self.weather_system:
                 self.weather_system.force_weather_change("rain")
                 self.show_notification("Clima forzado: Lluvia")
-            elif symbol == arcade.key.KEY_3 and self.debug and self.weather_system:
-                self.weather_system.force_weather_change("storm")
-                self.show_notification("Clima forzado: Tormenta")
-            elif symbol == arcade.key.KEY_4 and self.debug and self.weather_system:
-                self.weather_system.force_weather_change("fog")
-                self.show_notification("Clima forzado: Niebla")
-            elif symbol == arcade.key.KEY_5 and self.debug and self.weather_system:
-                self.weather_system.force_weather_change("wind")
-                self.show_notification("Clima forzado: Viento")
-            elif symbol == arcade.key.KEY_6 and self.debug and self.weather_system:
-                self.weather_system.force_weather_change("heat")
-                self.show_notification("Clima forzado: Calor")
-            elif symbol == arcade.key.KEY_7 and self.debug and self.weather_system:
-                self.weather_system.force_weather_change("cold")
-                self.show_notification("Clima forzado: Frío")
-        if state == GameState.MAIN_MENU and self.state_manager.main_menu:
-            self.state_manager.main_menu.handle_key_press(symbol, modifiers)
-        elif state == GameState.PAUSED and self.state_manager.pause_menu:
-            self.state_manager.pause_menu.handle_key_press(symbol, modifiers)
+            # ... resto de teclas de debug ...
 
+        elif state == GameState.MAIN_MENU:
+            if self.state_manager.main_menu:
+                self.state_manager.main_menu.handle_key_press(symbol, modifiers)
 
+        elif state == GameState.PAUSED:
+            if self.state_manager.pause_menu:
+                self.state_manager.pause_menu.handle_key_press(symbol, modifiers)
+
+        elif state == GameState.SETTINGS:
+            # ← ESTE ES EL BLOQUE CRÍTICO
+            if self.state_manager.settings_menu:
+                self.state_manager.settings_menu.handle_key_press(symbol, modifiers)
     def _toggle_inventory(self):
         """Alterna la visibilidad del inventario"""
         if self.player and hasattr(self.player, 'inventory'):
