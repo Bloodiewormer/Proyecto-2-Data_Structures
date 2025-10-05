@@ -1,14 +1,21 @@
 {
   "map": {
     "file": "api_cache\\map.json",
+
     "timestamp": "2025-10-05T14:38:28.390618",
     "expires_at": "2025-10-06T14:38:28.390618",
     "size": 15748
   },
   "weather": {
     "file": "api_cache\\weather.json",
-    "timestamp": "2025-10-05T14:38:28.479080",
-    "expires_at": "2025-10-05T14:53:28.479080",
+    "timestamp": "2025-10-05T15:31:52.479295",
+    "expires_at": "2025-10-05T15:46:52.479295",
     "size": 1745
+  },
+  "orders": {
+    "file": "api_cache\\orders.json",
+    "timestamp": "2025-10-05T15:31:52.556665",
+    "expires_at": "2025-10-05T16:01:52.556665",
+    "size": 1733
   }
 }
