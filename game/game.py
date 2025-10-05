@@ -103,6 +103,11 @@ class CourierGame(arcade.Window):
         self.orders_window = None
         self.orders_window_active = False
 
+        # Liberación escalonada de pedidos
+        self.order_release_interval = self.app_config.get("game", {}).get("order_release_seconds", 120)  # 2 min por defecto
+        self._orders_queue: list[tuple[float, Order]] = []  # (unlock_time_sec, Order)
+        self.pending_orders: list[Order] = []  # pedidos visibles en la ventana
+
     # Game Lifecycle / State Entry
     def setup(self):
         self.state_manager.change_state(GameState.MAIN_MENU)
@@ -361,6 +366,7 @@ class CourierGame(arcade.Window):
                 deadline = str(it.get("deadline", ""))
                 time_limit = _time_limit_from_deadline(deadline, 600.0)
 
+
                 order = Order(
                     order_id=oid,
                     pickup_pos=pickup,
@@ -393,7 +399,22 @@ class CourierGame(arcade.Window):
             except Exception as e:
                 if self.debug:
                     print(f"Skipping invalid order: {e}")
-        self.pending_orders = orders_objs
+
+        # Programar liberación escalonada cada N segundos (ignora release_time del JSON)
+        self._orders_queue = []
+        self.pending_orders = []
+        elapsed = float(self.total_play_time) if self.total_play_time else 0.0
+
+        for i, order in enumerate(orders_objs):
+            unlock_at = i * float(self.order_release_interval)  # 0s, 120s, 240s, ...
+            if unlock_at <= elapsed:
+                self.pending_orders.append(order)
+            else:
+                self._orders_queue.append((unlock_at, order))
+
+        # Asegurar orden por tiempo de desbloqueo
+        self._orders_queue.sort(key=lambda x: x[0])
+
         if self.orders_window:
             self.orders_window.set_pending_orders(self.pending_orders)
         if self.debug:
@@ -667,6 +688,9 @@ class CourierGame(arcade.Window):
         # Verificar condiciones de fin de juego
         self._check_game_end_conditions()
 
+        # Liberar pedidos según tiempo jugado
+        self._release_orders_by_time() 
+
         # Actualizar animación del inventario
         if self.player and hasattr(self.player, 'inventory'):
             self.player.inventory.update_animation(delta_time)
@@ -735,6 +759,26 @@ class CourierGame(arcade.Window):
             self.orders_window.update_animation(delta_time)
 
 
+    def _release_orders_by_time(self):
+        """Libera pedidos desde la cola cuando corresponde por tiempo jugado."""
+        if not hasattr(self, "_orders_queue"):
+            return
+        released = 0
+        elapsed = float(self.total_play_time)
+
+        # Mover todos los que ya cumplieron su tiempo
+        while self._orders_queue and self._orders_queue[0][0] <= elapsed:
+            _, order = self._orders_queue.pop(0)
+            self.pending_orders.append(order)
+            released += 1
+            # Notificación por cada nuevo pedido
+            self.show_notification(f"Nuevo pedido disponible: {order.id}")
+
+        # Actualizar la lista de la ventana (comparte referencia)
+        if released and self.orders_window:
+            self.orders_window.set_pending_orders(self.pending_orders)
+
+            
     # Input Handling
 
     def on_key_press(self, symbol: int, modifiers: int):
