@@ -8,13 +8,8 @@ Sistema de caché
 Cadenas de Markov
 Interpolación lineal
 inventario
-ordenamiento de inventario(deadline/prioridad)
-implementar todo weather
 
 
-falta que implementar 
-puntos de recogida 
-puntos de dejada
 
 
 
@@ -23,12 +18,12 @@ puntos de dejada
 
 
 
-reputacion comienza en 70
-entregas puntuales aumenta reputacion, retraso o cancelamientos reducen la reputacion
+retraso o cancelamientos reducen la reputacion
 con reputacion +90 es igual a +5 extra en pagos
 
 si la reputacion es menor a 20 se termina el juego
 victoria cuando uno acaba la meta antes de que se acabe el tiempo
 tiempo limite no hay falta definir
 
+//Cosas a Areglar
 

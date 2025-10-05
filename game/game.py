@@ -1,3 +1,4 @@
+import api.client
 import time
 import arcade
 from typing import Optional
@@ -6,6 +7,7 @@ import random
 import os
 import json
 
+from datetime import datetime, timezone  # add this import near the top
 from api.client import APIClient
 from game.city import CityMap
 from game.player import Player
@@ -216,69 +218,114 @@ class CourierGame(arcade.Window):
         if hasattr(self, 'width') and hasattr(self, 'height'):
             self.orders_window.ensure_initial_position(self.width, self.height)
 
+    # python
+    # file: 'game/game.py'
     def _setup_orders(self):
-        cache_dir = self.files_conf.get("cache_directory") or os.path.join(os.getcwd(), "api_cache")
-        os.makedirs(cache_dir, exist_ok=True)
-        orders_path = os.path.join(cache_dir, "pedidos.json")
+        # Reset
+        self.pending_orders = []
+        orders_list = []
 
-        orders_raw = []
+        # 1) Try API (it already tries cache and data/ internally)
         try:
-            with open(orders_path, "r", encoding="utf-8") as f:
-                data = json.load(f)
-                orders_raw = data.get("orders", [])
-                if self.debug:
-                    print(f"Cargados {len(orders_raw)} pedidos de {orders_path}")
+            if self.debug:
+                print("Loading orders (API -> cache -> backup)...")
+            data = self.api_client.get_orders() if self.api_client else None
         except Exception as e:
             if self.debug:
-                print(f"No se pudo leer {orders_path}: {e}")
-            # Fallback simple
-            orders_raw = [
-                {"id": 1, "pickup": [20, 19], "dropoff": [10, 22], "payout": 120, "weight": 1.2, "deadline": "2025-01-01T10:00:00Z"},
-                {"id": 2, "pickup": [27, 24], "dropoff": [4, 6], "payout": 240, "weight": 2.5, "deadline": "2025-01-01T10:10:00Z"}
+                print(f"Orders load error: {e}")
+            data = None
+
+        # Extract list from API shape
+        if isinstance(data, dict) and isinstance(data.get("orders"), list):
+            orders_list = data["orders"]
+        elif isinstance(data, list):
+            orders_list = data
+
+        # 2) Manual local fallback without editing API:
+        # Try 'api_cache/pedidos.json' first, then 'data/pedidos.json'
+        if not orders_list:
+            cache_dir = self.files_conf.get("cache_directory") or os.path.join(os.getcwd(), "api_cache")
+            candidates = [
+                os.path.join(cache_dir, "pedidos.json"),
+                os.path.join(os.getcwd(), "data", "pedidos.json"),
             ]
-
-        
-        self.pending_orders = []
-
-        for od in orders_raw:
-            try:
-                order_obj = Order(
-                order_id=str(od.get("id")),
-                pickup_pos=tuple(od.get("pickup", [0, 0])),
-                dropoff_pos=tuple(od.get("dropoff", [0, 0])),
-                payment=float(od.get("payout", od.get("payment", 50))),
-                time_limit=float(od.get("time_limit", 600.0)),
-                weight=od.get("weight"),  # Puede ser None
-                priority=int(od.get("priority", 0)),
-                deadline=str(od.get("deadline", "")),
-                release_time=int(od.get("release_time", 0))
-            )
-
-                if self.renderer and self.city:
-                    for coord in (order_obj.pickup_pos, order_obj.dropoff_pos):
-                        if not coord:
-                            continue
-                        try:
-                            x, y = coord
-                            pos = find_nearest_building(self.city, x, y)
-                            if pos and self.city.tiles[pos[1]][pos[0]] == "B":
-                                self.renderer.generate_door_at(*pos)
-                        except Exception as e2:
+            for path in candidates:
+                try:
+                    if os.path.exists(path):
+                        with open(path, "r", encoding="utf-8") as f:
+                            local = json.load(f)
+                        if isinstance(local, dict) and isinstance(local.get("orders"), list):
+                            orders_list = local["orders"]
+                        elif isinstance(local, list):
+                            orders_list = local
+                        if orders_list:
                             if self.debug:
-                                print(f"No se pudo generar puerta para {coord}: {e2}")
+                                print(f"Loaded orders from backup: {path} ({len(orders_list)})")
+                            break
+                except Exception as e:
+                    if self.debug:
+                        print(f"Backup load failed {path}: {e}")
 
-                self.pending_orders.append(order_obj)
+        if self.debug:
+            print(f"Orders fetched: {len(orders_list)}")
 
+        def _parse_xy(v):
+            if isinstance(v, (list, tuple)) and len(v) == 2:
+                return int(v[0]), int(v[1])
+            return None
+
+        def _time_limit_from_deadline(deadline_str: str, default_sec: float = 600.0) -> float:
+            if not deadline_str:
+                return default_sec
+            try:
+                s = str(deadline_str)
+                if s.endswith("Z"):
+                    dt = datetime.fromisoformat(s.replace("Z", "+00:00"))
+                    now = datetime.now(timezone.utc)
+                else:
+                    dt = datetime.fromisoformat(s)
+                    now = datetime.now(dt.tzinfo) if dt.tzinfo else datetime.now()
+                return max(60.0, (dt - now).total_seconds())
+            except Exception:
+                return default_sec
+
+        # Build Order objects (attributes for ordersWindow)
+        orders_objs = []
+        for it in orders_list:
+            try:
+                oid = str(it.get("id") or f"ORD-{random.randint(1000, 9999)}")
+                pickup = _parse_xy(it.get("pickup"))
+                dropoff = _parse_xy(it.get("dropoff"))
+                if not pickup or not dropoff:
+                    continue
+
+                payout = float(it.get("payout", 0))
+                deadline = str(it.get("deadline", ""))
+                time_limit = _time_limit_from_deadline(deadline, 600.0)
+
+                order = Order(
+                    order_id=oid,
+                    pickup_pos=pickup,
+                    dropoff_pos=dropoff,
+                    payment=payout,
+                    time_limit=time_limit,
+                    weight=it.get("weight"),
+                    priority=int(it.get("priority", 0)),
+                    deadline=deadline,
+                    release_time=int(it.get("release_time", 0)),
+                )
+                orders_objs.append(order)
             except Exception as e:
-                print(f"Error creando/agregando pedido {od}: {e}")
+                if self.debug:
+                    print(f"Skipping invalid order: {e}")
 
-        
+        self.pending_orders = orders_objs
 
         if self.orders_window:
             self.orders_window.set_pending_orders(self.pending_orders)
 
         if self.debug:
-            print(f"{len(self.pending_orders)} pedidos activos cargados")
+            print(f"{len(self.pending_orders)} active orders ready")
 
     # Notifications
     def show_notification(self, message: str, duration: float = 2.0):
@@ -392,23 +439,8 @@ class CourierGame(arcade.Window):
         arcade.draw_text(label, label_x, label_y, arcade.color.WHITE, 12, anchor_x="center")
 
     def _draw_time_countdown_top(self, time_str: str, time_color: tuple):
-        """Top-left countdown text."""
         arcade.draw_text(f"Time: {time_str}", 10, self.height - 22, time_color, 18)
 
-    def _draw_time_countdown_bottom(self, time_str: str, time_color: tuple):
-        """Bottom-center countdown pill."""
-        pill_width = 220
-        pill_height = 26
-        cx = self.width // 2
-        y_bottom = 10
-        x1 = cx - pill_width // 2
-        x2 = cx + pill_width // 2
-        y1 = y_bottom
-        y2 = y_bottom + pill_height
-
-        arcade.draw_lrbt_rectangle_filled(x1, x2, y1, y2, (0, 0, 0, 160))
-        arcade.draw_lrbt_rectangle_outline(x1, x2, y1, y2, arcade.color.WHITE, 2)
-        arcade.draw_text(f"Remaining: {time_str}", cx, y1 + 5, time_color, 14, anchor_x="center")
 
     def _speedo_anchor(self):
         """Approximate speedometer area anchor (center and radius)."""
@@ -431,8 +463,8 @@ class CourierGame(arcade.Window):
             inventory_y = self.height - inventory_height - 50
             self.player.inventory.draw_inventory(inventory_x, inventory_y, inventory_width, inventory_height)
 
-
-        if self.frame_times:
+        #only if debug = True
+        if self.frame_times and self.debug:
             dt_list = self.frame_times[-60:]
             avg_dt = (sum(dt_list) / len(dt_list)) if dt_list else 0.0
             avg_fps = (1.0 / avg_dt) if avg_dt > 0 else 0.0
@@ -442,16 +474,13 @@ class CourierGame(arcade.Window):
             self.hud_performance.draw()
 
         self.hud_player_location.position = (10, self.height - 80)
-        if self.player:
+        if self.player and self.debug:
             self.hud_player_location.text = f"Pos: ({self.player.x:.1f}, {self.player.y:.1f}) Angle: {self.player.angle:.2f} rad"
             self.hud_player_location.draw()
 
-        self.hud_stats.position = (10, self.height - 40)
-        self.hud_stats.text = f"$ {earnings:.0f} | rep: {reputation:.0f}"
-        self.hud_stats.draw()
 
         # Remaining game time (text + color, top-left info line)
-        self.hud_time.position = (10, self.height - 120)
+
         time_str = format_time(self.time_remaining)
         goal_earnings = getattr(self.city, 'goal', 3000) if self.city else 3000
         progress = (earnings / goal_earnings) * 100 if goal_earnings > 0 else 0
@@ -463,15 +492,8 @@ class CourierGame(arcade.Window):
         else:
             time_color = arcade.color.WHITE
 
-        self.hud_time.color = time_color
-        self.hud_time.text = f"Tiempo: {time_str} | Meta: ${goal_earnings:.0f} ({progress:.1f}%)"
-        self.hud_time.draw()
-
         # Top-left countdown (kept) and centered compact earnings bar
-        self._draw_time_countdown_top(time_str, time_color)
         self._draw_earnings_progress_top(earnings, goal_earnings)
-
-        # NEW: bottom-center countdown pill
         self._draw_time_countdown_bottom(time_str, time_color)
 
         # Stamina bar (bottom-right)
@@ -847,9 +869,6 @@ class CourierGame(arcade.Window):
         state_color = state_colors.get(self.player.state, arcade.color.WHITE)
         arcade.draw_circle_filled(center_x, center_y + 18, 4, state_color)
 
-    def _draw_time_countdown_top(self, time_str: str, time_color: tuple):
-        """Top-left countdown text."""
-        arcade.draw_text(f"Time: {time_str}", 10, self.height - 22, time_color, 18)
 
     def _draw_time_countdown_bottom(self, time_str: str, time_color: tuple):
         """Bottom-center countdown pill."""

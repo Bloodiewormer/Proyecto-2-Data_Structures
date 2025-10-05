@@ -1,11 +1,8 @@
 # file: game/weather.py
 import json
-import time
 import random
-import math
 from game.utils import  lerp
-from typing import Dict, Any, List, Tuple, Optional
-from datetime import datetime, timedelta
+from typing import Dict, Any, Tuple
 from pathlib import Path
 
 
@@ -23,7 +20,6 @@ class WeatherCondition:
 
 
 class WeatherSystem:
-    """Sistema de clima dinámico con cadena de Markov"""
 
     def __init__(self, api_client, config: Dict[str, Any]):
         self.api_client = api_client

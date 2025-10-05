@@ -1,14 +1,20 @@
 {
   "map": {
     "file": "api_cache\\map.json",
-    "timestamp": "2025-09-28T19:53:11.348979",
-    "expires_at": "2025-09-29T19:53:11.348979",
-    "size": 15702
+    "timestamp": "2025-10-05T15:31:52.401398",
+    "expires_at": "2025-10-06T15:31:52.401398",
+    "size": 15748
   },
   "weather": {
     "file": "api_cache\\weather.json",
-    "timestamp": "2025-09-28T19:53:11.428037",
-    "expires_at": "2025-09-28T20:08:11.428037",
-    "size": 1479
+    "timestamp": "2025-10-05T15:31:52.479295",
+    "expires_at": "2025-10-05T15:46:52.479295",
+    "size": 1745
+  },
+  "orders": {
+    "file": "api_cache\\orders.json",
+    "timestamp": "2025-10-05T15:31:52.556665",
+    "expires_at": "2025-10-05T16:01:52.556665",
+    "size": 1733
   }
 }
