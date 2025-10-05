@@ -19,6 +19,7 @@ class GameStateManager:
     """Administrador de estados del juego"""
 
     def __init__(self, game_instance):
+        self.settings_menu = None
         self.game = game_instance
         self.current_state = GameState.MAIN_MENU
         self.previous_state = None
@@ -26,6 +27,7 @@ class GameStateManager:
         # Referencias a menús
         self.main_menu = None
         self.pause_menu = None
+        self.settings_menu = None
 
     def change_state(self, new_state: GameState):
         """Cambiar el estado del juego"""
@@ -43,6 +45,17 @@ class GameStateManager:
             self._show_pause_menu()
         elif new_state == GameState.GAME_OVER:
             self._show_game_over()
+        elif new_state == GameState.SETTINGS:
+            self._show_settings()
+
+    def _show_settings(self):
+        """Mostrar menú de configuraciones"""
+        if not self.settings_menu:
+            from game.settings import SettingsMenu
+            self.settings_menu = SettingsMenu(self.game)
+        print("Menú de settings inicializado")  # ← DEBUG
+
+
 
     def _show_main_menu(self):
         """Mostrar menú principal"""
@@ -94,7 +107,7 @@ class MainMenu:
         """Verificar si existe una partida guardada"""
         try:
             save_dir = Path(self.game.app_config.get("files", {}).get("save_directory", "saves"))
-            save_file = save_dir / "savegame.json"
+            save_file = save_dir / "savegame.sav"
             return save_file.exists() and save_file.stat().st_size > 0
         except:
             return False
@@ -210,8 +223,8 @@ class MainMenu:
         elif option == "Cargar Partida":
             self.game.load_game()
         elif option == "Configuración":
-            # TODO: Implementar menú de configuración
-            print("Configuración - No implementado aún")
+            from game.gamestate import GameState
+            self.game.state_manager.change_state(GameState.SETTINGS)
         elif option == "Salir":
             arcade.exit()
 
@@ -335,9 +348,8 @@ class PauseMenu:
                 self.save_message = "✗ Error al guardar partida"
             self.save_message_timer = 2.0
         elif option == "Configuración":
-            # TODO: Implementar configuración
-            self.save_message = "Configuración - No implementado"
-            self.save_message_timer = 1.0
+            from game.gamestate import GameState
+            self.game.state_manager.change_state(GameState.SETTINGS)
         elif option == "Menú Principal":
             self.game.return_to_main_menu()
         elif option == "Salir":

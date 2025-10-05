@@ -6,6 +6,11 @@
         "title": "Courier Quest",
         "resizable": true
     },
+    "audio": {
+        "music_volume": 1.0,
+        "menu_music": "assets/music/menu_theme.ogg",
+        "game_music": "assets/music/game_theme.mp3"
+    },
     "game": {
         "tile_size": 32,
         "time_limit_minutes": 5,
@@ -54,4 +59,5 @@
         "enable_weather_effects": true,
         "enable_visual_effects": true
     }
+
 }

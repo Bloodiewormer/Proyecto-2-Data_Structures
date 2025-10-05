@@ -1,34 +1,33 @@
 # file: game/savemanager.py
-import json
+import pickle
 import os
 import shutil
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, Any, Optional, List, Tuple
-from .utils import save_json, load_json
 
 
 class saveManager:
-    """Administrador de guardado y carga de partidas"""
+    """Administrador de guardado y carga de partidas (formato binario)"""
 
     def __init__(self, config: Dict[str, Any]):
         # Configuración de directorios
         self.save_directory = Path(config.get("files", {}).get("save_directory", "saves"))
         self.save_directory.mkdir(parents=True, exist_ok=True)
 
-        # Archivos principales
-        self.save_file = self.save_directory / "savegame.json"
-        self.backup_file = self.save_directory / "savegame_backup.json"
-        self.autosave_file = self.save_directory / "autosave.json"
+        # Archivos principales (ahora con extensión .sav)
+        self.save_file = self.save_directory / "savegame.sav"
+        self.backup_file = self.save_directory / "savegame_backup.sav"
+        self.autosave_file = self.save_directory / "autosave.sav"
 
         # Configuración
         self.max_backups = 3
         self.compress_saves = False
 
     def save_game(self, player, city, orders_data=None, game_stats=None) -> bool:
-        """Guardar el estado completo del juego"""
+        """Guardar el estado completo del juego en formato binario"""
         try:
-            print("Iniciando guardado de partida...")
+            print("Iniciando guardado de partida (binario)...")
 
             # Crear backup del save anterior si existe
             self._create_backup()
@@ -36,13 +35,13 @@ class saveManager:
             # Recopilar todos los datos del juego
             save_data = self._collect_game_data(player, city, orders_data, game_stats)
 
-            # Guardar archivo principal
-            success = self._write_save_file(save_data, self.save_file)
+            # Guardar archivo principal en binario
+            success = self._write_binary_save_file(save_data, self.save_file)
 
             if success:
                 print(f"✓ Partida guardada exitosamente en {self.save_file}")
                 # Guardar copia de autosave
-                self._write_save_file(save_data, self.autosave_file)
+                self._write_binary_save_file(save_data, self.autosave_file)
             else:
                 print("✗ Error al guardar la partida")
 
@@ -55,12 +54,12 @@ class saveManager:
             return False
 
     def load_game(self) -> Optional[Dict[str, Any]]:
-        """Cargar el estado del juego desde archivo"""
+        """Cargar el estado del juego desde archivo binario"""
         try:
-            print("Intentando cargar partida...")
+            print("Intentando cargar partida (binario)...")
 
             # Intentar cargar desde archivo principal
-            save_data = self._load_save_file(self.save_file)
+            save_data = self._load_binary_save_file(self.save_file)
 
             if save_data:
                 print(f"✓ Partida cargada desde {self.save_file}")
@@ -69,7 +68,7 @@ class saveManager:
 
             # Si falla, intentar desde backup
             print("Archivo principal no disponible, intentando backup...")
-            save_data = self._load_save_file(self.backup_file)
+            save_data = self._load_binary_save_file(self.backup_file)
 
             if save_data:
                 print(f"✓ Partida cargada desde backup {self.backup_file}")
@@ -78,7 +77,7 @@ class saveManager:
 
             # Si falla, intentar desde autosave
             print("Backup no disponible, intentando autosave...")
-            save_data = self._load_save_file(self.autosave_file)
+            save_data = self._load_binary_save_file(self.autosave_file)
 
             if save_data:
                 print(f"✓ Partida cargada desde autosave {self.autosave_file}")
@@ -181,21 +180,24 @@ class saveManager:
             print(f"Error al serializar ciudad: {e}")
             return {}
 
-    def _write_save_file(self, data: Dict[str, Any], filepath: Path) -> bool:
-        """Escribir datos de guardado a archivo"""
+    def _write_binary_save_file(self, data: Dict[str, Any], filepath: Path) -> bool:
+        """Escribir datos de guardado a archivo binario"""
         try:
-            return save_json(data, str(filepath))
+            with open(filepath, 'wb') as f:
+                pickle.dump(data, f, protocol=pickle.HIGHEST_PROTOCOL)
+            return True
         except Exception as e:
-            print(f"Error al escribir archivo {filepath}: {e}")
+            print(f"Error al escribir archivo binario {filepath}: {e}")
             return False
 
-    def _load_save_file(self, filepath: Path) -> Optional[Dict[str, Any]]:
-        """Cargar datos de guardado desde archivo"""
+    def _load_binary_save_file(self, filepath: Path) -> Optional[Dict[str, Any]]:
+        """Cargar datos de guardado desde archivo binario"""
         try:
             if not filepath.exists():
                 return None
 
-            data = load_json(str(filepath))
+            with open(filepath, 'rb') as f:
+                data = pickle.load(f)
 
             if not data:
                 return None
@@ -208,7 +210,7 @@ class saveManager:
             return data
 
         except Exception as e:
-            print(f"Error al cargar archivo {filepath}: {e}")
+            print(f"Error al cargar archivo binario {filepath}: {e}")
             return None
 
     def _validate_save_data(self, data: Dict[str, Any]) -> bool:
@@ -330,7 +332,10 @@ class saveManager:
             if not self.save_file.exists():
                 return None
 
-            save_data = load_json(str(self.save_file))
+            # Cargar datos binarios
+            with open(self.save_file, 'rb') as f:
+                save_data = pickle.load(f)
+
             if not save_data:
                 return None
 
@@ -386,7 +391,7 @@ class saveManager:
         """Realizar guardado automático"""
         try:
             save_data = self._collect_game_data(player, city, orders_data, game_stats)
-            success = self._write_save_file(save_data, self.autosave_file)
+            success = self._write_binary_save_file(save_data, self.autosave_file)
 
             if success:
                 print("✓ Autosave completado")
@@ -416,7 +421,8 @@ class saveManager:
         # Backup
         if self.backup_file.exists():
             try:
-                backup_data = load_json(str(self.backup_file))
+                with open(self.backup_file, 'rb') as f:
+                    backup_data = pickle.load(f)
                 if backup_data:
                     saves.append({
                         "type": "backup",
@@ -429,7 +435,8 @@ class saveManager:
         # Autosave
         if self.autosave_file.exists():
             try:
-                autosave_data = load_json(str(self.autosave_file))
+                with open(self.autosave_file, 'rb') as f:
+                    autosave_data = pickle.load(f)
                 if autosave_data:
                     saves.append({
                         "type": "autosave",
@@ -479,7 +486,9 @@ class saveManager:
                 return False
 
             # Validar el archivo antes de importar
-            test_data = load_json(str(import_file))
+            with open(import_file, 'rb') as f:
+                test_data = pickle.load(f)
+
             if not test_data or not self._validate_save_data(test_data):
                 print("Archivo de guardado inválido")
                 return False
