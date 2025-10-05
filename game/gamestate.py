@@ -53,9 +53,7 @@ class GameStateManager:
         if not self.settings_menu:
             from game.settings import SettingsMenu
             self.settings_menu = SettingsMenu(self.game)
-        print("Menú de settings inicializado")  # ← DEBUG
-
-
+        print("Menú de settings inicializado")
 
     def _show_main_menu(self):
         """Mostrar menú principal"""
@@ -64,7 +62,6 @@ class GameStateManager:
 
     def _resume_game(self):
         """Reanudar el juego"""
-        # El juego ya está corriendo, solo cambiar estado
         pass
 
     def _show_pause_menu(self):
@@ -74,7 +71,6 @@ class GameStateManager:
 
     def _show_game_over(self):
         """Mostrar pantalla de game over"""
-        # TODO: Implementar pantalla de game over
         pass
 
     def is_game_active(self) -> bool:
@@ -99,9 +95,13 @@ class MainMenu:
 
         # Si no hay partida guardada, deshabilitar "Cargar Partida"
         if not self.has_saved_game:
-            self.disabled_options = [1]  # Índice de "Cargar Partida"
+            self.disabled_options = [1]
         else:
             self.disabled_options = []
+
+        # Cargar imagen de fondo
+        self.background_texture = None
+        self._load_background_image()
 
     def _check_saved_game(self) -> bool:
         """Verificar si existe una partida guardada"""
@@ -112,77 +112,210 @@ class MainMenu:
         except:
             return False
 
+    def _load_background_image(self):
+        """Cargar imagen de fondo del menú"""
+        try:
+            # Intentar cargar desde assets/images/menu_background.png
+            bg_path = Path("assets/images/menu_background.png")
+
+            if bg_path.exists():
+                self.background_texture = arcade.load_texture(str(bg_path))
+                print(f"Imagen de fondo cargada: {bg_path}")
+            else:
+                print(f"Imagen de fondo no encontrada en: {bg_path}")
+                print("Usando fondo por defecto")
+        except Exception as e:
+            print(f"Error al cargar imagen de fondo: {e}")
+            self.background_texture = None
+
     def draw(self):
         """Dibujar el menú principal"""
         width = self.game.width
         height = self.game.height
 
-        # Fondo degradado
-        arcade.draw_lrbt_rectangle_filled(0, width, 0, height, (15, 25, 45))
-        arcade.draw_lrbt_rectangle_filled(0, width, 0, height // 3, (25, 35, 55))
+        # Dibujar imagen de fondo si existe
+        if self.background_texture:
+            # Escalar la imagen para cubrir toda la ventana
+            arcade.draw_texture_rect(
+                self.background_texture,
+                arcade.LRBT(0, width, 0, height)
+            )
+
+            # Overlay oscuro semi-transparente para mejorar legibilidad
+            arcade.draw_lrbt_rectangle_filled(
+                0, width, 0, height,
+                (0, 0, 0, 100)  # Negro con 40% de opacidad
+            )
+        else:
+            # Fondo degradado por defecto
+            arcade.draw_lrbt_rectangle_filled(0, width, 0, height, (15, 25, 45))
+            arcade.draw_lrbt_rectangle_filled(0, width, 0, height // 3, (25, 35, 55))
+
+        # Panel semi-transparente detrás del menú para mejor legibilidad
+        panel_width = 600
+        panel_height = 500
+        panel_x = (width - panel_width) // 2
+        panel_y = (height - panel_height) // 2
+
+        arcade.draw_lrbt_rectangle_filled(
+            panel_x, panel_x + panel_width,
+            panel_y, panel_y + panel_height,
+            (20, 30, 50, 180)  # Azul oscuro semi-transparente
+        )
+
+        # Borde del panel
+        arcade.draw_lrbt_rectangle_outline(
+            panel_x, panel_x + panel_width,
+            panel_y, panel_y + panel_height,
+            (255, 255, 255, 200), 3
+        )
+
+        # Título principal con sombra para mejor legibilidad
+        title_y = panel_y + panel_height - 80
+
+        # Sombra del título
+        arcade.draw_text(
+            "COURIER QUEST",
+            width // 2 + 3, title_y - 3,
+            (0, 0, 0, 180), 56,
+            anchor_x="center", font_name="Kenney Future"
+        )
 
         # Título principal
         arcade.draw_text(
             "COURIER QUEST",
-            width // 2, height - 80,
-            arcade.color.WHITE, 56,
-            anchor_x="center", font_name="Kenney Future"
+            width // 2, title_y,
+            (255, 220, 100), 56,  # Amarillo dorado
+            anchor_x="center", font_name="Kenney Future", bold=True
         )
 
-        # Subtítulo
+        # Subtítulo con sombra
+        subtitle_y = title_y - 50
         arcade.draw_text(
             "Entrega. Explora. Sobrevive.",
-            width // 2, height - 120,
-            (200, 200, 255), 20,
+            width // 2 + 2, subtitle_y - 2,
+            (0, 0, 0, 180), 20,
             anchor_x="center"
+        )
+        arcade.draw_text(
+            "Entrega. Explora. Sobrevive.",
+            width // 2, subtitle_y,
+            (200, 220, 255), 20,
+            anchor_x="center", bold=True
         )
 
         # Opciones del menú
-        menu_start_y = height // 2 + 80
-        option_spacing = 50
+        menu_start_y = panel_y + panel_height // 2 + 20
+        option_spacing = 60
 
         for i, option in enumerate(self.options):
             y_pos = menu_start_y - (i * option_spacing)
 
-            # Determinar color de la opción
+            # Determinar color y estilo de la opción
             is_selected = (i == self.selected_option)
             is_disabled = (i in self.disabled_options)
 
             if is_disabled:
-                color = (100, 100, 100)  # Gris para deshabilitado
+                # Opción deshabilitada
                 text = f"  {option}"
+                # Sombra
+                arcade.draw_text(
+                    text,
+                    width // 2 + 2, y_pos - 2,
+                    (0, 0, 0, 100), 24,
+                    anchor_x="center"
+                )
+                # Texto
+                arcade.draw_text(
+                    text,
+                    width // 2, y_pos,
+                    (80, 80, 80), 24,
+                    anchor_x="center"
+                )
             elif is_selected:
-                color = (255, 255, 100)  # Amarillo para seleccionado
+                # Opción seleccionada con fondo
                 text = f"> {option} <"
+
+                # Fondo de selección
+                text_width = len(text) * 15
+                arcade.draw_lrbt_rectangle_filled(
+                    width // 2 - text_width // 2 - 10,
+                    width // 2 + text_width // 2 + 10,
+                    y_pos - 5,
+                    y_pos + 25,
+                    (255, 255, 100, 50)
+                )
+
+                # Sombra del texto
+                arcade.draw_text(
+                    text,
+                    width // 2 + 2, y_pos - 2,
+                    (0, 0, 0, 200), 26,
+                    anchor_x="center", bold=True
+                )
+
+                # Texto seleccionado
+                arcade.draw_text(
+                    text,
+                    width // 2, y_pos,
+                    (255, 255, 100), 26,
+                    anchor_x="center", bold=True
+                )
             else:
-                color = arcade.color.WHITE
+                # Opción normal
                 text = f"  {option}"
 
-            arcade.draw_text(
-                text,
-                width // 2, y_pos,
-                color, 24,
-                anchor_x="center"
-            )
+                # Sombra
+                arcade.draw_text(
+                    text,
+                    width // 2 + 2, y_pos - 2,
+                    (0, 0, 0, 150), 24,
+                    anchor_x="center"
+                )
+
+                # Texto
+                arcade.draw_text(
+                    text,
+                    width // 2, y_pos,
+                    (255, 255, 255), 24,
+                    anchor_x="center"
+                )
 
         # Información de partida guardada
         if self.has_saved_game and self.selected_option == 1:
             save_info = self._get_save_info()
             if save_info:
-                info_y = menu_start_y - 250
+                info_y = panel_y + 80
+
+                # Fondo para la información
+                arcade.draw_lrbt_rectangle_filled(
+                    width // 2 - 150, width // 2 + 150,
+                    info_y - 10, info_y + 20,
+                    (0, 0, 0, 120)
+                )
+
                 arcade.draw_text(
                     f"Última partida: {save_info}",
                     width // 2, info_y,
-                    (180, 180, 255), 14,
-                    anchor_x="center"
+                    (180, 220, 255), 14,
+                    anchor_x="center", bold=True
                 )
 
-        # Instrucciones
+        # Instrucciones en la parte inferior del panel
+        instructions_y = panel_y + 30
+
+        # Fondo para instrucciones
+        arcade.draw_lrbt_rectangle_filled(
+            panel_x + 10, panel_x + panel_width - 10,
+            instructions_y - 10, instructions_y + 20,
+            (0, 0, 0, 100)
+        )
+
         arcade.draw_text(
             "↑/↓ - Navegar    ENTER - Seleccionar    ESC - Salir",
-            width // 2, 40,
-            (150, 150, 200), 16,
-            anchor_x="center"
+            width // 2, instructions_y,
+            (200, 220, 255), 16,
+            anchor_x="center", bold=True
         )
 
     def _get_save_info(self) -> str:
@@ -192,7 +325,7 @@ class MainMenu:
             save_manager = SaveManager(self.game.app_config)
             info = save_manager.get_save_info()
             if info:
-                timestamp = info.get("timestamp", "").split("T")[0]  # Solo fecha
+                timestamp = info.get("timestamp", "").split("T")[0]
                 earnings = info.get("player_earnings", 0)
                 return f"{timestamp} - ${earnings:.0f}"
         except:
@@ -212,7 +345,6 @@ class MainMenu:
 
     def _execute_option(self):
         """Ejecutar la opción seleccionada"""
-        # No ejecutar si está deshabilitada
         if self.selected_option in self.disabled_options:
             return
 
@@ -237,7 +369,6 @@ class PauseMenu:
         self.selected_option = 0
         self.options = ["Continuar", "Guardar Partida", "Configuración", "Menú Principal", "Salir"]
 
-        # Estado del guardado
         self.save_message = ""
         self.save_message_timer = 0
 
@@ -285,7 +416,7 @@ class PauseMenu:
             y_pos = menu_start_y - (i * option_spacing)
 
             if i == self.selected_option:
-                color = (255, 255, 100)  # Amarillo para seleccionado
+                color = (255, 255, 100)
                 text = f"> {option} <"
             else:
                 color = arcade.color.WHITE
@@ -298,7 +429,7 @@ class PauseMenu:
                 anchor_x="center"
             )
 
-        # Mensaje de guardado (si existe)
+        # Mensaje de guardado
         if self.save_message and self.save_message_timer > 0:
             message_y = panel_y + 30
             arcade.draw_text(
