@@ -7,17 +7,17 @@ import random
 import os
 import json
 
-from datetime import datetime, timezone  # add this import near the top
+from datetime import datetime, timezone
 from api.client import APIClient
 from game.city import CityMap
 from game.player import Player
 from game.renderer import RayCastRenderer
 from game.weather import WeatherSystem
 from game.utils import find_nearest_building, format_time
-from game.gamestate import GameStateManager, GameState, MainMenu, PauseMenu
+from game.gamestate import GameStateManager, GameState
 from game.saveManager import saveManager
-from .inventory import Order
 from game.audio import AudioManager
+from . import utils
 from .orders import Order
 from .ordersWindow import ordersWindow
 
@@ -282,7 +282,8 @@ class CourierGame(arcade.Window):
         self.pending_orders = []
         orders_list = []
 
-        # 1) Try API (it already tries cache and data/ internally)
+        # 1) Try API
+
         try:
             if self.debug:
                 print("Loading orders (API -> cache -> backup)...")
@@ -346,7 +347,7 @@ class CourierGame(arcade.Window):
             except Exception:
                 return default_sec
 
-        # Build Order objects (attributes for ordersWindow)
+        # Build Order objects (attributes para ordersWindow)
         orders_objs = []
         for it in orders_list:
             try:
@@ -372,15 +373,29 @@ class CourierGame(arcade.Window):
                     release_time=int(it.get("release_time", 0)),
                 )
                 orders_objs.append(order)
+
+                # *** AGREGAR GENERACIÓN DE PUERTAS AQUÍ ***
+                if self.renderer and self.city:
+                    px, py = pickup
+                    if 0 <= px < self.city.width and 0 <= py < self.city.height:
+                        p1, p2 = utils.find_nearest_building(self.city, px, py)
+                        if 0 <= p1 < self.city.width and 0 <= p2 < self.city.height:
+                            self.renderer.generate_door_at(p1, p2)
+
+
+                    # Generate door at dropoff
+                    dx, dy = dropoff
+                    if 0 <= dx < self.city.width and 0 <= dy < self.city.height:
+                        d1, d2 = utils.find_nearest_building(self.city, dx, dy)
+                        if 0 <= d1 < self.city.width and 0 <= d2 < self.city.height:
+                            self.renderer.generate_door_at(d1, d2)
+
             except Exception as e:
                 if self.debug:
                     print(f"Skipping invalid order: {e}")
-
         self.pending_orders = orders_objs
-
         if self.orders_window:
             self.orders_window.set_pending_orders(self.pending_orders)
-
         if self.debug:
             print(f"{len(self.pending_orders)} active orders ready")
 
@@ -450,8 +465,8 @@ class CourierGame(arcade.Window):
                 self.state_manager.settings_menu.draw()
 
         self._draw_notifications()
-        
 
+        # Dibujar ventana de pedidos si existe
 
     def _draw_game(self):
         if not self.renderer or not self.player:
@@ -726,23 +741,20 @@ class CourierGame(arcade.Window):
         # ESC handling PRIMERO (antes de verificar estados)
         if symbol == arcade.key.ESCAPE:
             state = self.state_manager.current_state
-
             if state == GameState.PLAYING:
                 self.pause_game()
             elif state == GameState.PAUSED:
                 self.resume_game()
             elif state == GameState.SETTINGS:
-                # En settings, ESC vuelve al menú anterior
                 if self.state_manager.settings_menu:
                     self.state_manager.settings_menu.handle_key_press(symbol, modifiers)
             elif state == GameState.MAIN_MENU:
                 arcade.exit()
             return
-
         # Manejar input según el estado actual
         state = self.state_manager.current_state
-
         if state == GameState.PLAYING:
+            # Teclas de movimiento
             if symbol in (arcade.key.W, arcade.key.UP):
                 self._move_forward = True
             elif symbol in (arcade.key.S, arcade.key.DOWN):
@@ -759,70 +771,67 @@ class CourierGame(arcade.Window):
                 self._toggle_inventory_sort()
             elif symbol == arcade.key.I:
                 self._toggle_inventory()
-            # Debug keys para clima
-            elif symbol == arcade.key.KEY_1 and self.debug and self.weather_system:
-                self.weather_system.force_weather_change("clear")
-                self.show_notification("Clima forzado: Despejado")
-            elif symbol == arcade.key.KEY_2 and self.debug and self.weather_system:
-                self.weather_system.force_weather_change("rain")
-                self.show_notification("Clima forzado: Lluvia")
-            # ... resto de teclas de debug ...
-
-        elif state == GameState.MAIN_MENU:
-            if self.state_manager.main_menu:
-                self.state_manager.main_menu.handle_key_press(symbol, modifiers)
-            elif symbol == arcade.key.KEY_3 and self.debug and self.weather_system:
-                self.weather_system.force_weather_change("storm")
-                self.show_notification("Clima forzado: Tormenta")
-            elif symbol == arcade.key.KEY_4 and self.debug and self.weather_system:
-                self.weather_system.force_weather_change("fog")
-                self.show_notification("Clima forzado: Niebla")
-            elif symbol == arcade.key.KEY_5 and self.debug and self.weather_system:
-                self.weather_system.force_weather_change("wind")
-                self.show_notification("Clima forzado: Viento")
-            elif symbol == arcade.key.KEY_6 and self.debug and self.weather_system:
-                self.weather_system.force_weather_change("heat")
-                self.show_notification("Clima forzado: Calor")
-            elif symbol == arcade.key.KEY_7 and self.debug and self.weather_system:
-                self.weather_system.force_weather_change("cold")
-                self.show_notification("Clima forzado: Frío")
-            elif symbol == arcade.key.O:  # Tecla O para abrir/cerrar ventana de pedidos
+            # *** MOVER LA TECLA O AQUÍ (estado PLAYING) ***
+            elif symbol == arcade.key.O:
                 if self.orders_window:
                     self.orders_window.ensure_initial_position(self.width, self.height)
                     if self.orders_window.toggle_open():
                         if self.orders_window.is_open:
-                            # Centrar la ventana al abrir
                             window_x = (self.width - self.orders_window.panel_width) // 2
                             window_y = (self.height - self.orders_window.panel_height) // 2
                             self.orders_window.set_target_position(window_x, window_y)
                             self.show_notification("Ventana de pedidos abierta")
                         else:
                             self.show_notification("Ventana de pedidos cerrada")
-                return  # <-- evita que el mismo on_key_press la cierre de inmediato
-        if state == GameState.MAIN_MENU and self.state_manager.main_menu:
-            self.state_manager.main_menu.handle_key_press(symbol, modifiers)
-        elif state == GameState.PAUSED and self.state_manager.pause_menu:
-            self.state_manager.pause_menu.handle_key_press(symbol, modifiers)
-        # Navegación solo cuando la ventana ya está abierta (sin volver a manejar 'O')
-        if self.orders_window and self.orders_window.is_open:
-            if symbol == arcade.key.UP:
-                self.orders_window.previous_order()
-            elif symbol == arcade.key.DOWN:
-                self.orders_window.next_order()
-            elif symbol == arcade.key.A:  # Aceptar pedido
-                if not self.orders_window.accept_order():
-                    self.show_notification("No hay capacidad para este pedido")
-            elif symbol == arcade.key.C:  # Cancelar pedido
-                self.orders_window.cancel_order()
-
+                return  # Importante: return para evitar procesamiento adicional
+            # Navegación en ventana de pedidos (solo si está abierta)
+            if self.orders_window and self.orders_window.is_open:
+                if symbol == arcade.key.UP:
+                    self.orders_window.previous_order()
+                    return
+                elif symbol == arcade.key.DOWN:
+                    self.orders_window.next_order()
+                    return
+                elif symbol == arcade.key.A:  # Aceptar pedido
+                    if not self.orders_window.accept_order():
+                        self.show_notification("No hay capacidad para este pedido")
+                    return
+                elif symbol == arcade.key.C:  # Cancelar pedido
+                    self.orders_window.cancel_order()
+                    return
+            # Debug keys para clima (solo si debug está activo)
+            if self.debug:
+                if symbol == arcade.key.KEY_1 and self.weather_system:
+                    self.weather_system.force_weather_change("clear")
+                    self.show_notification("Clima forzado: Despejado")
+                elif symbol == arcade.key.KEY_2 and self.weather_system:
+                    self.weather_system.force_weather_change("rain")
+                    self.show_notification("Clima forzado: Lluvia")
+                elif symbol == arcade.key.KEY_3 and self.weather_system:
+                    self.weather_system.force_weather_change("storm")
+                    self.show_notification("Clima forzado: Tormenta")
+                elif symbol == arcade.key.KEY_4 and self.weather_system:
+                    self.weather_system.force_weather_change("fog")
+                    self.show_notification("Clima forzado: Niebla")
+                elif symbol == arcade.key.KEY_5 and self.weather_system:
+                    self.weather_system.force_weather_change("wind")
+                    self.show_notification("Clima forzado: Viento")
+                elif symbol == arcade.key.KEY_6 and self.weather_system:
+                    self.weather_system.force_weather_change("heat")
+                    self.show_notification("Clima forzado: Calor")
+                elif symbol == arcade.key.KEY_7 and self.weather_system:
+                    self.weather_system.force_weather_change("cold")
+                    self.show_notification("Clima forzado: Frío")
+        elif state == GameState.MAIN_MENU:
+            if self.state_manager.main_menu:
+                self.state_manager.main_menu.handle_key_press(symbol, modifiers)
         elif state == GameState.PAUSED:
             if self.state_manager.pause_menu:
                 self.state_manager.pause_menu.handle_key_press(symbol, modifiers)
-
         elif state == GameState.SETTINGS:
-            # ← ESTE ES EL BLOQUE CRÍTICO
             if self.state_manager.settings_menu:
                 self.state_manager.settings_menu.handle_key_press(symbol, modifiers)
+
     def _toggle_inventory(self):
         """Alterna la visibilidad del inventario"""
         if self.player and hasattr(self.player, 'inventory'):
