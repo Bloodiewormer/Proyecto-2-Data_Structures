@@ -277,13 +277,13 @@ class CourierGame(arcade.Window):
 
     # python
     # file: 'game/game.py'
+    # python
     def _setup_orders(self):
         # Reset
         self.pending_orders = []
         orders_list = []
 
         # 1) Try API
-
         try:
             if self.debug:
                 print("Loading orders (API -> cache -> backup)...")
@@ -347,15 +347,47 @@ class CourierGame(arcade.Window):
             except Exception:
                 return default_sec
 
-        # Build Order objects (attributes para ordersWindow)
+        # Snap a requested position to a street tile adjacent to the nearest building.
+        # Returns ((street_x, street_y), (building_x, building_y)) or None if not possible.
+        def _snap_to_accessible(pos):
+            if not self.city:
+                return None
+            px, py = pos
+            bx, by = utils.find_nearest_building(self.city, px, py)
+            # Validate building tile
+            if not (0 <= bx < self.city.width and 0 <= by < self.city.height):
+                return None
+            if self.city.tiles[by][bx] != "B":
+                return None
+            # Find adjacent street (4-neighborhood)
+            neighbors = [(bx + 1, by), (bx - 1, by), (bx, by + 1), (bx, by - 1)]
+            for nx, ny in neighbors:
+                if 0 <= nx < self.city.width and 0 <= ny < self.city.height:
+                    if self.city.tiles[ny][nx] == "C":
+                        return (nx, ny), (bx, by)
+            # If the nearest building has no street adjacency, consider it inaccessible
+            return None
+
+        # Build Order objects (attributes for ordersWindow), ensuring accessibility
         orders_objs = []
         for it in orders_list:
             try:
                 oid = str(it.get("id") or f"ORD-{random.randint(1000, 9999)}")
-                pickup = _parse_xy(it.get("pickup"))
-                dropoff = _parse_xy(it.get("dropoff"))
-                if not pickup or not dropoff:
+                pickup_raw = _parse_xy(it.get("pickup"))
+                dropoff_raw = _parse_xy(it.get("dropoff"))
+                if not pickup_raw or not dropoff_raw:
                     continue
+
+                # Snap pickup and dropoff to street-adjacent-to-building
+                snap_p = _snap_to_accessible(pickup_raw)
+                snap_d = _snap_to_accessible(dropoff_raw)
+                if not snap_p or not snap_d:
+                    if self.debug:
+                        print(f"Skipping inaccessible order {oid}: no street-adjacent building for pickup/dropoff")
+                    continue
+
+                (pickup_pos, p_building) = snap_p
+                (dropoff_pos, d_building) = snap_d
 
                 payout = float(it.get("payout", 0))
                 deadline = str(it.get("deadline", ""))
@@ -363,8 +395,8 @@ class CourierGame(arcade.Window):
 
                 order = Order(
                     order_id=oid,
-                    pickup_pos=pickup,
-                    dropoff_pos=dropoff,
+                    pickup_pos=pickup_pos,
+                    dropoff_pos=dropoff_pos,
                     payment=payout,
                     time_limit=time_limit,
                     weight=it.get("weight"),
@@ -374,25 +406,20 @@ class CourierGame(arcade.Window):
                 )
                 orders_objs.append(order)
 
-                # *** AGREGAR GENERACIÓN DE PUERTAS AQUÍ ***
+                # Generate doors at the selected buildings
                 if self.renderer and self.city:
-                    px, py = pickup
-                    if 0 <= px < self.city.width and 0 <= py < self.city.height:
-                        p1, p2 = utils.find_nearest_building(self.city, px, py)
-                        if 0 <= p1 < self.city.width and 0 <= p2 < self.city.height:
-                            self.renderer.generate_door_at(p1, p2)
+                    pbx, pby = p_building
+                    if 0 <= pbx < self.city.width and 0 <= pby < self.city.height:
+                        self.renderer.generate_door_at(pbx, pby)
 
-
-                    # Generate door at dropoff
-                    dx, dy = dropoff
-                    if 0 <= dx < self.city.width and 0 <= dy < self.city.height:
-                        d1, d2 = utils.find_nearest_building(self.city, dx, dy)
-                        if 0 <= d1 < self.city.width and 0 <= d2 < self.city.height:
-                            self.renderer.generate_door_at(d1, d2)
+                    dbx, dby = d_building
+                    if 0 <= dbx < self.city.width and 0 <= dby < self.city.height:
+                        self.renderer.generate_door_at(dbx, dby)
 
             except Exception as e:
                 if self.debug:
                     print(f"Skipping invalid order: {e}")
+
         self.pending_orders = orders_objs
         if self.orders_window:
             self.orders_window.set_pending_orders(self.pending_orders)
@@ -428,7 +455,7 @@ class CourierGame(arcade.Window):
             return
 
         # Verificar victoria (meta de dinero alcanzada)
-        goal_earnings = getattr(self.city, 'goal', self.app_config.get("game", {}).get("goal_earnings", 3000))
+        goal_earnings = int(self.app_config.get("game", {}).get("goal_earnings", 500))
         if self.player.earnings >= goal_earnings:
             # Calcular bonus por terminar temprano
             time_bonus = max(0, self.time_remaining / self.time_limit)
@@ -439,9 +466,9 @@ class CourierGame(arcade.Window):
     def _end_game(self, victory: bool, message: str):
         """Terminar el juego con victoria o derrota"""
         if victory:
-            self.show_notification(f"🎉 {message}")
+            self.show_notification(f" {message}")
         else:
-            self.show_notification(f"💀 {message}")
+            self.show_notification(f" {message}")
 
         # TODO: Aquí se podría cambiar a un estado de GAME_OVER
         # Por ahora volvemos al menú principal después de un delay
@@ -559,7 +586,7 @@ class CourierGame(arcade.Window):
         # Remaining game time (text + color, top-left info line)
 
         time_str = format_time(self.time_remaining)
-        goal_earnings = getattr(self.city, 'goal', 3000) if self.city else 3000
+        goal_earnings = int(self.app_config.get("game", {}).get("goal_earnings", 500))
         progress = (earnings / goal_earnings) * 100 if goal_earnings > 0 else 0
 
         if self.time_remaining < 120:
