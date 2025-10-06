@@ -16,7 +16,8 @@
         "time_limit_minutes": 5,
         "initial_reputation": 70,
         "initial_stamina": 100,
-        "goal_earnings": 500
+        "goal_earnings": 500,
+        "order_release_seconds": 60
     },
     "player": {
         "base_speed": 3.0,
