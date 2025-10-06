@@ -20,6 +20,7 @@ from game.audio import AudioManager
 from . import utils
 from .orders import Order
 from .ordersWindow import ordersWindow
+from game.score import ScoreManager, ScoreScreen
 
 
 class CourierGame(arcade.Window):
@@ -102,6 +103,11 @@ class CourierGame(arcade.Window):
 
         self.orders_window = None
         self.orders_window_active = False
+
+        # Score / Game Over
+        self.score_manager = ScoreManager(self.files_conf)
+        self.score_screen: Optional[ScoreScreen] = None
+        self.game_over_active = False
 
         # Liberación escalonada de pedidos
         self.order_release_interval = self.app_config.get("game", {}).get("order_release_seconds", 120)  # 2 min por defecto
@@ -247,6 +253,10 @@ class CourierGame(arcade.Window):
         self.total_play_time = 0
         self.time_remaining = self.time_limit
 
+        # Limpiar overlay de score
+        self.game_over_active = False
+        self.score_screen = None
+
         # Cambiar estado PRIMERO
         self.state_manager.change_state(GameState.MAIN_MENU)
 
@@ -309,8 +319,8 @@ class CourierGame(arcade.Window):
         if not orders_list:
             cache_dir = self.files_conf.get("cache_directory") or os.path.join(os.getcwd(), "api_cache")
             candidates = [
-                os.path.join(cache_dir, "pedidos.json"),
-                os.path.join(os.getcwd(), "data", "pedidos.json"),
+                os.path.join(cache_dir, "orders.json"),
+                os.path.join(os.getcwd(), "data", "orders.json"),
             ]
             for path in candidates:
                 try:
@@ -485,14 +495,29 @@ class CourierGame(arcade.Window):
 
     def _end_game(self, victory: bool, message: str):
         """Terminar el juego con victoria o derrota"""
-        if victory:
-            self.show_notification(f" {message}")
-        else:
-            self.show_notification(f" {message}")
+        self.show_notification(f" {message}")
 
-        # TODO: Aquí se podría cambiar a un estado de GAME_OVER
-        # Por ahora volvemos al menú principal después de un delay
-        self.return_to_main_menu()
+        # Calcular y guardar score, activar overlay de fin de partida
+        try:
+            entry = self.score_manager.calculate_score(
+                self.player,
+                self.time_remaining,
+                self.time_limit,
+                victory,
+                self.total_play_time,
+            )
+            leaderboard = self.score_manager.add_score(entry)
+            self.game_over_active = True
+            self.score_screen = ScoreScreen(self, entry, leaderboard)
+
+            # Cambiar a PAUSED para congelar el juego y mostrar overlay
+            self.state_manager.change_state(GameState.PAUSED)
+            if hasattr(self, 'audio_manager'):
+                self.audio_manager.pause_music()
+        except Exception as e:
+            print(f"Error generando score: {e}")
+            # Fallback al menú principal si algo falla
+            self.return_to_main_menu()
 
     # Frame Rendering
 
@@ -505,7 +530,9 @@ class CourierGame(arcade.Window):
             self._draw_game()
         elif state == GameState.PAUSED:
             self._draw_game()
-            if self.state_manager.pause_menu:
+            if self.game_over_active and self.score_screen:
+                self.score_screen.draw()
+            elif self.state_manager.pause_menu:
                 self.state_manager.pause_menu.draw()
         elif state == GameState.SETTINGS:
             if self.state_manager.settings_menu:
@@ -804,12 +831,15 @@ class CourierGame(arcade.Window):
         if released and self.orders_window:
             self.orders_window.set_pending_orders(self.pending_orders)
 
-            
+
     # Input Handling
 
     def on_key_press(self, symbol: int, modifiers: int):
         # ESC handling PRIMERO (antes de verificar estados)
         if symbol == arcade.key.ESCAPE:
+            if self.state_manager.current_state == GameState.PAUSED and self.game_over_active and self.score_screen:
+                if self.score_screen.handle_key_press(symbol, modifiers):
+                    return
             state = self.state_manager.current_state
             if state == GameState.PLAYING:
                 self.pause_game()
@@ -896,6 +926,11 @@ class CourierGame(arcade.Window):
             if self.state_manager.main_menu:
                 self.state_manager.main_menu.handle_key_press(symbol, modifiers)
         elif state == GameState.PAUSED:
+            # Si overlay de score está activo, delegar manejo
+            if self.game_over_active and self.score_screen:
+                if self.score_screen.handle_key_press(symbol, modifiers):
+                    return
+            # De lo contrario, menú de pausa normal
             if self.state_manager.pause_menu:
                 self.state_manager.pause_menu.handle_key_press(symbol, modifiers)
         elif state == GameState.SETTINGS:
