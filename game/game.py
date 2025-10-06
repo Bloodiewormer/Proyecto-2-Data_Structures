@@ -761,7 +761,14 @@ class CourierGame(arcade.Window):
 
         # Weather icon: to the right of the speedometer (above the bars)
         self._draw_weather_icon_right_of_speedometer()
+
+        _y = self.height - 350
+        _h = 18
+
         arcade.draw_text("ESC - Pausa", self.width - 100, self.height - 30, arcade.color.WHITE, 12, anchor_x="center")
+        arcade.draw_text(" I - Inventario", self.width - 60, _y - _h, arcade.color.WHITE, 12, anchor_x="center")
+        arcade.draw_text(" O - Pedidos", self.width - 60, _y - 2 * _h, arcade.color.WHITE, 12, anchor_x="center")
+        arcade.draw_text(" U - Devolverse", self.width - 60, _y - 3 * _h, arcade.color.WHITE, 12, anchor_x="center")
 
     def _draw_notifications(self):
         if self.notification_timer > 0 and self.notification_message:
