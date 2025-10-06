@@ -13,15 +13,15 @@
     },
     "game": {
         "tile_size": 32,
-        "time_limit_minutes": 5,
-        "initial_reputation": 70,
+        "time_limit_minutes": 10,
+        "initial_reputation": 31,
         "initial_stamina": 100,
-        "goal_earnings": 500,
-        "order_release_seconds": 60
+        "goal_earnings": 1100,
+        "order_release_seconds": 5
     },
     "player": {
-        "base_speed": 3.0,
-        "move_speed": 3.0,
+        "base_speed": 10,
+        "move_speed": 10,
         "turn_speed": 1.5,
         "max_inventory_weight": 10
     },

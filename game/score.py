@@ -36,7 +36,6 @@ class ScoreManager:
 
         score_base = int(round(earnings * pay_mult))
 
-        # Bonus por terminar con >=20% del tiempo restante (sólo si ganó)
         time_ratio = (time_remaining / time_limit) if time_limit > 0 else 0.0
         if victory and time_ratio >= 0.20:
             # Bonus = 15% del score_base
@@ -122,10 +121,7 @@ class ScoreScreen:
         w = self.game.width
         h = self.game.height
 
-        # Asegurar viewport para HUD/overlay
-        arcade.set_viewport(0, w, 0, h)
-
-        # Panel semitransparente central
+        # Panel
         pw, ph = int(w * 0.75), int(h * 0.75)
         left = (w - pw) // 2
         right = left + pw
@@ -135,12 +131,18 @@ class ScoreScreen:
         arcade.draw_lrbt_rectangle_filled(left, right, bottom, top, (0, 0, 0, 180))
         arcade.draw_lrbt_rectangle_outline(left, right, bottom, top, arcade.color.WHITE, 2)
 
-        # Título
+        # Title
         title = "¡Victoria!" if self.entry.get("victory") else "Derrota"
         title_color = arcade.color.GREEN if self.entry.get("victory") else arcade.color.RED
         arcade.draw_text(title, w // 2, top - 48, title_color, 28, anchor_x="center")
 
-        # Bloque de resultados
+        # Leaderboard column (fixed position; do not move)
+        lb_x = right - 260
+        lb_y_start = top - 100
+
+        # Results block constrained to the left of the leaderboard
+        res_right = lb_x - 16  # right edge of results column
+
         y = top - 100
         line_h = 24
         lbl_color = arcade.color.LIGHT_GRAY
@@ -149,7 +151,7 @@ class ScoreScreen:
         def line(lbl: str, val: str):
             nonlocal y
             arcade.draw_text(lbl, left + 24, y, lbl_color, 14)
-            arcade.draw_text(val, right - 24, y, val_color, 14, anchor_x="right")
+            arcade.draw_text(val, res_right, y, val_color, 14, anchor_x="right")
             y -= line_h
 
         earnings = self.entry.get("earnings", 0)
@@ -168,21 +170,20 @@ class ScoreScreen:
         line("Bonus tiempo", f"+{bonus_time}")
         line("Penalizaciones", f"-{penalties} (Cancelaciones: {cancels})")
         y -= 6
-        arcade.draw_lrbt_rectangle_filled(left + 24, right - 24, y + 6, y + 8, (255, 255, 255, 60))
+        arcade.draw_lrbt_rectangle_filled(left + 24, res_right, y + 6, y + 8, (255, 255, 255, 60))
         y -= 10
         line("Score final", f"{final_score}")
         line("Entregas completadas", f"{delivered}")
 
-        # Top leaderboard (derecha)
-        lb_x = right - 260
-        lb_y = top - 100
+        # Top leaderboard (right, unchanged)
+        lb_y = lb_y_start
         arcade.draw_text("Top Puntajes", lb_x, lb_y, arcade.color.YELLOW, 16)
         lb_y -= 28
         for i, e in enumerate(self.leaderboard, start=1):
-            txt = f"{i:>2}. {int(e.get('score', 0)):>6}  {'OK' if e.get('victory') else 'KO'}  {str(e.get('timestamp',''))}"
+            txt = f"{i:>2}. {int(e.get('score', 0)):>6}  {'OK' if e.get('victory') else 'KO'}  {e.get('timestamp')[:10]}"
             arcade.draw_text(txt, lb_x, lb_y, arcade.color.LIGHT_GRAY, 12)
             lb_y -= 18
 
-        # Instrucciones
-        info = "Enter/Esc: Menú principal    R: Nueva partida"
-        arcade.draw_text(info, w // 2, bottom + 18, arcade.color.LIGHT_GRAY, 14, anchor_x="center")
+        # Instructions
+        info = "Enter: Menu Principal"
+        arcade.draw_text(info, w // 2, bottom + 32, arcade.color.LIGHT_GRAY, 12, anchor_x="center")

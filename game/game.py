@@ -1,3 +1,5 @@
+import traceback
+
 import api.client
 import time
 import arcade
@@ -186,7 +188,6 @@ class CourierGame(arcade.Window):
 
         except Exception as e:
             print(f"Error al cargar partida: {e}")
-            import traceback
             traceback.print_exc()
             self.show_notification("Error al cargar partida")
             self.state_manager.change_state(GameState.MAIN_MENU)
@@ -223,7 +224,7 @@ class CourierGame(arcade.Window):
 
         except Exception as e:
             print(f"Error crítico al guardar: {e}")
-            import traceback
+
             traceback.print_exc()
             self.show_notification("Error al guardar")
             return False
@@ -290,57 +291,54 @@ class CourierGame(arcade.Window):
         if hasattr(self, 'width') and hasattr(self, 'height'):
             self.orders_window.ensure_initial_position(self.width, self.height)
 
-    # python
-    # file: 'game/game.py'
-    # python
+
     def _setup_orders(self):
-        # Reset
+        """Configurar pedidos desde API o backup (forzar carga en ubicaciones accesibles)"""
+
+
         self.pending_orders = []
         orders_list = []
 
-        # 1) Try API
+        # 1) Intentar desde API (ya guarda backup automáticamente)
         try:
             if self.debug:
-                print("Loading orders (API -> cache -> backup)...")
+                print("Cargando pedidos desde API...")
             data = self.api_client.get_orders() if self.api_client else None
         except Exception as e:
             if self.debug:
-                print(f"Orders load error: {e}")
+                print(f"Error al cargar pedidos desde API: {e}")
             data = None
 
-        # Extract list from API shape
-        if isinstance(data, dict) and isinstance(data.get("orders"), list):
-            orders_list = data["orders"]
+        # Extraer lista
+        if isinstance(data, dict) and isinstance(data.get("data"), list):
+            orders_list = data["data"]
         elif isinstance(data, list):
             orders_list = data
 
-        # 2) Manual local fallback without editing API:
-        # Try 'api_cache/pedidos.json' first, then 'data/pedidos.json'
+        # 2) Si falla, cargar desde backup offline
         if not orders_list:
-            cache_dir = self.files_conf.get("cache_directory") or os.path.join(os.getcwd(), "api_cache")
-            candidates = [
-                os.path.join(cache_dir, "orders.json"),
-                os.path.join(os.getcwd(), "data", "orders.json"),
-            ]
-            for path in candidates:
-                try:
-                    if os.path.exists(path):
-                        with open(path, "r", encoding="utf-8") as f:
-                            local = json.load(f)
-                        if isinstance(local, dict) and isinstance(local.get("orders"), list):
+            try:
+                backup_file = os.path.join(self.files_conf.get("data_directory", "data"), "pedidos.json")
+                if os.path.exists(backup_file):
+                    with open(backup_file, "r", encoding="utf-8") as f:
+                        local = json.load(f)
+
+                    if isinstance(local, dict):
+                        if isinstance(local.get("data"), list):
+                            orders_list = local["data"]
+                        elif isinstance(local.get("orders"), list):
                             orders_list = local["orders"]
-                        elif isinstance(local, list):
-                            orders_list = local
-                        if orders_list:
-                            if self.debug:
-                                print(f"Loaded orders from backup: {path} ({len(orders_list)})")
-                            break
-                except Exception as e:
-                    if self.debug:
-                        print(f"Backup load failed {path}: {e}")
+                    elif isinstance(local, list):
+                        orders_list = local
+
+                    if orders_list and self.debug:
+                        print(f"Pedidos cargados desde backup: {backup_file} ({len(orders_list)})")
+            except Exception as e:
+                if self.debug:
+                    print(f"Error al cargar pedidos desde backup: {e}")
 
         if self.debug:
-            print(f"Orders fetched: {len(orders_list)}")
+            print(f"Total de pedidos cargados: {len(orders_list)}")
 
         def _parse_xy(v):
             if isinstance(v, (list, tuple)) and len(v) == 2:
@@ -362,28 +360,86 @@ class CourierGame(arcade.Window):
             except Exception:
                 return default_sec
 
-        # Snap a requested position to a street tile adjacent to the nearest building.
-        # Returns ((street_x, street_y), (building_x, building_y)) or None if not possible.
-        def _snap_to_accessible(pos):
+        def _in_bounds(x, y):
+            return 0 <= x < self.city.width and 0 <= y < self.city.height
+
+        def _is_street(x, y):
+            try:
+                return self.city.tiles[y][x] == "C"
+            except Exception:
+                return False
+
+        # Búsqueda por anillos concéntricos para hallar la calle más cercana
+        def _nearest_street_from(x0, y0, max_radius=64):
             if not self.city:
                 return None
-            px, py = pos
-            bx, by = utils.find_nearest_building(self.city, px, py)
-            # Validate building tile
-            if not (0 <= bx < self.city.width and 0 <= by < self.city.height):
-                return None
-            if self.city.tiles[by][bx] != "B":
-                return None
-            # Find adjacent street (4-neighborhood)
-            neighbors = [(bx + 1, by), (bx - 1, by), (bx, by + 1), (bx, by - 1)]
-            for nx, ny in neighbors:
-                if 0 <= nx < self.city.width and 0 <= ny < self.city.height:
-                    if self.city.tiles[ny][nx] == "C":
-                        return (nx, ny), (bx, by)
-            # If the nearest building has no street adjacency, consider it inaccessible
+            if _in_bounds(x0, y0) and _is_street(x0, y0):
+                return (x0, y0)
+
+            best = None
+            best_d2 = float("inf")
+            for r in range(1, max_radius + 1):
+                # Recorrer sólo el borde del cuadrado de lado 2r+1
+                for dx in range(-r, r + 1):
+                    for dy in (-r, r):
+                        x, y = x0 + dx, y0 + dy
+                        if _in_bounds(x, y) and _is_street(x, y):
+                            d2 = (x - x0) * (x - x0) + (y - y0) * (y - y0)
+                            if d2 < best_d2:
+                                best, best_d2 = (x, y), d2
+                for dy in range(-r + 1, r):
+                    for dx in (-r, r):
+                        x, y = x0 + dx, y0 + dy
+                        if _in_bounds(x, y) and _is_street(x, y):
+                            d2 = (x - x0) * (x - x0) + (y - y0) * (y - y0)
+                            if d2 < best_d2:
+                                best, best_d2 = (x, y), d2
+                if best is not None:
+                    return best
             return None
 
-        # Build Order objects (attributes for ordersWindow), ensuring accessibility
+        # Snap robusto: intenta junto al edificio, luego a la calle más cercana
+        # Devuelve: (street_pos, building_pos_or_none)
+        def _snap_to_accessible_or_force(pos):
+            if not self.city or not pos:
+                return None
+            px, py = pos
+
+            # Si ya es calle, úsala y toma el edificio más cercano para puertas
+            if _in_bounds(px, py) and _is_street(px, py):
+                nb = utils.find_nearest_building(self.city, px, py)
+                return (px, py), nb
+
+            nb = utils.find_nearest_building(self.city, px, py)
+            bx, by = nb if nb else (px, py)
+
+            # 4 vecinos primero
+            for nx, ny in ((bx + 1, by), (bx - 1, by), (bx, by + 1), (bx, by - 1)):
+                if _in_bounds(nx, ny) and _is_street(nx, ny):
+                    return (nx, ny), nb
+
+            # 8 vecinos
+            for nx in (bx - 1, bx, bx + 1):
+                for ny in (by - 1, by, by + 1):
+                    if (nx, ny) != (bx, by) and _in_bounds(nx, ny) and _is_street(nx, ny):
+                        return (nx, ny), nb
+
+            # Calle más cercana al edificio
+            near_street = _nearest_street_from(bx, by, max_radius=96)
+            if near_street:
+                return near_street, nb
+
+            # Último recurso: calle más cercana a la posición pedida
+            near_street = _nearest_street_from(px, py, max_radius=96)
+            if near_street:
+                nn_b = utils.find_nearest_building(self.city, near_street[0], near_street[1])
+                return near_street, nn_b
+
+            # No hay calles en el mapa; imposible ubicar
+            return None
+
+        # Build Order objects (atributos para ordersWindow), garantizando accesibilidad
+
         orders_objs = []
         for it in orders_list:
             try:
@@ -391,20 +447,22 @@ class CourierGame(arcade.Window):
                 pickup_raw = _parse_xy(it.get("pickup"))
                 dropoff_raw = _parse_xy(it.get("dropoff"))
                 if not pickup_raw or not dropoff_raw:
+                    if self.debug:
+                        print(f"Saltando pedido {oid}: pickup/dropoff inválidos")
                     continue
 
-                # Snap pickup and dropoff to street-adjacent-to-building
-                snap_p = _snap_to_accessible(pickup_raw)
-                snap_d = _snap_to_accessible(dropoff_raw)
+                snap_p = _snap_to_accessible_or_force(pickup_raw)
+                snap_d = _snap_to_accessible_or_force(dropoff_raw)
+
                 if not snap_p or not snap_d:
                     if self.debug:
-                        print(f"Skipping inaccessible order {oid}: no street-adjacent building for pickup/dropoff")
+                        print(f"Forzado fallido para {oid}: no hay calles en el mapa")
                     continue
 
                 (pickup_pos, p_building) = snap_p
                 (dropoff_pos, d_building) = snap_d
 
-                payout = float(it.get("payout", 0))
+                payout = float(it.get("payout", it.get("payment", 0)))
                 deadline = str(it.get("deadline", ""))
                 time_limit = _time_limit_from_deadline(deadline, 600.0)
 
@@ -422,19 +480,39 @@ class CourierGame(arcade.Window):
                 )
                 orders_objs.append(order)
 
-                # Generate doors at the selected buildings
+                # Generar puertas si hay edificio asociado
                 if self.renderer and self.city:
-                    pbx, pby = p_building
-                    if 0 <= pbx < self.city.width and 0 <= pby < self.city.height:
-                        self.renderer.generate_door_at(pbx, pby)
-
-                    dbx, dby = d_building
-                    if 0 <= dbx < self.city.width and 0 <= dby < self.city.height:
-                        self.renderer.generate_door_at(dbx, dby)
+                    if p_building:
+                        pbx, pby = p_building
+                        if _in_bounds(pbx, pby) and self.city.tiles[pby][pbx] == "B":
+                            self.renderer.generate_door_at(pbx, pby)
+                    if d_building:
+                        dbx, dby = d_building
+                        if _in_bounds(dbx, dby) and self.city.tiles[dby][dbx] == "B":
+                            self.renderer.generate_door_at(dbx, dby)
 
             except Exception as e:
                 if self.debug:
-                    print(f"Skipping invalid order: {e}")
+                    print(f"Saltando pedido inválido: {e}")
+
+        # Programar liberación escalonada cada N segundos
+        self._orders_queue = []
+        self.pending_orders = []
+        elapsed = float(self.total_play_time) if self.total_play_time else 0.0
+
+        for i, order in enumerate(orders_objs):
+            unlock_at = i * float(self.order_release_interval)
+            if unlock_at <= elapsed:
+                self.pending_orders.append(order)
+            else:
+                self._orders_queue.append((unlock_at, order))
+
+        self._orders_queue.sort(key=lambda x: x[0])
+
+        if self.orders_window:
+            self.orders_window.set_pending_orders(self.pending_orders)
+        if self.debug:
+            print(f"{len(self.pending_orders)} active orders ready")
 
         # Programar liberación escalonada cada N segundos (ignora release_time del JSON)
         self._orders_queue = []
@@ -994,9 +1072,6 @@ class CourierGame(arcade.Window):
         else:
             inv.sort_by_priority()
         self.show_notification(f"Orden: {inv.sort_mode}", 1.2)
-
-        
-
 
 
     # HUD Components

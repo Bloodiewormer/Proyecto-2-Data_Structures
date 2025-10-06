@@ -45,19 +45,19 @@ class APIClient:
         url = self.base_url + endpoint
 
         try:
-            # Verificar estado de conexión
             if not self._check_connection():
                 return self._get_from_cache_or_backup(cache_key)
 
-            # Realizar petición
             response = self.session.get(url, timeout=self.timeout)
             response.raise_for_status()
-
             data = response.json()
 
-            # Guardar en caché si está habilitado
+            # Guardar en caché
             if self.cache:
                 self.cache.save(cache_key, data)
+
+            # NUEVO: Guardar como backup offline
+            self._save_backup(cache_key, data)
 
             self.is_online = True
             print(f"Datos obtenidos desde API: {endpoint}")
@@ -71,6 +71,23 @@ class APIClient:
         except json.JSONDecodeError as e:
             print(f"Error al decodificar JSON desde {endpoint}: {e}")
             return self._get_from_cache_or_backup(cache_key)
+
+    def _save_backup(self, cache_key: str, data: Dict[str, Any]):
+        """Guardar backup offline en data/"""
+        backup_files = {
+            "map": "data/ciudad.json",
+            "orders": "data/pedidos.json",
+            "weather": "data/weather.json"
+        }
+
+        backup_file = backup_files.get(cache_key)
+        if backup_file:
+            try:
+                Path(backup_file).parent.mkdir(parents=True, exist_ok=True)
+                with open(backup_file, 'w', encoding='utf-8') as f:
+                    json.dump(data, f, indent=2, ensure_ascii=False)
+            except Exception as e:
+                print(f"Error al guardar backup {backup_file}: {e}")
 
     def _check_connection(self) -> bool:
         now = datetime.now()

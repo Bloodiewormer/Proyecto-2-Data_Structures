@@ -208,18 +208,16 @@ class WeatherSystem:
         self._load_weather_data()
 
     def _load_weather_data(self) -> bool:
-        """Cargar datos del clima desde la API o cache"""
+        """Cargar datos del clima desde la API o backup"""
         try:
             if self.debug:
                 print("Cargando datos del clima...")
 
-            # Intentar cargar desde API
+            # Intentar desde API (ya guarda backup automáticamente)
             if self.api_client:
                 weather_data = self.api_client.get_weather()
                 if weather_data:
                     self._parse_weather_data(weather_data)
-                    # Guardar copia de respaldo
-                    self._save_json(weather_data, str(self.weather_backup_file))
                     if self.debug:
                         print("Datos del clima cargados desde API")
                     return True
@@ -228,19 +226,19 @@ class WeatherSystem:
             if self.debug:
                 print(f"Error al cargar clima desde API: {e}")
 
-        # Cargar desde archivo de respaldo
+        # Cargar desde backup offline
         try:
             backup_data = self._load_json(str(self.weather_backup_file))
             if backup_data:
                 self._parse_weather_data(backup_data)
                 if self.debug:
-                    print("Datos del clima cargados desde archivo de respaldo")
+                    print("Datos del clima cargados desde backup offline")
                 return True
         except Exception as e:
             if self.debug:
-                print(f"Error al cargar clima desde respaldo: {e}")
+                print(f"Error al cargar clima desde backup: {e}")
 
-        # Si todo falla, crear datos por defecto
+        # Fallback: clima por defecto
         self._create_default_weather()
         if self.debug:
             print("Usando datos de clima por defecto")
@@ -461,24 +459,10 @@ class WeatherSystem:
                 print(f"Clima forzado a: {condition} (intensidad: {self.current_intensity})")
 
 
-    def _save_json(self, data: Dict[str, Any], filepath: str) -> bool:
-        """Guardar datos JSON"""
-        try:
-            Path(filepath).parent.mkdir(parents=True, exist_ok=True)
-            with open(filepath, 'w', encoding='utf-8') as f:
-                json.dump(data, f, indent=2, ensure_ascii=False)
-            return True
-        except Exception as e:
-            if self.debug:
-                print(f"Error al guardar JSON {filepath}: {e}")
-            return False
-
     def _load_json(self, filepath: str) -> Dict[str, Any]:
-        """Cargar datos JSON"""
+        """Cargar JSON local"""
         try:
             with open(filepath, 'r', encoding='utf-8') as f:
                 return json.load(f)
-        except Exception as e:
-            if self.debug:
-                print(f"Error al cargar JSON {filepath}: {e}")
+        except Exception:
             return {}

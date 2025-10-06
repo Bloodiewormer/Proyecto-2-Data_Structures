@@ -20,8 +20,9 @@ class Player:
         self.turn_speed = config.get("turn_speed", 1.5)
         self.move_speed = config.get("move_speed", 3.0)
 
+        # Atributos dinámicos se deben cambiar en config.json
         self.stamina = 100.0
-        self.reputation = 70.0
+        self.reputation = config.get("initial_reputation", 90.0)
         self.earnings = 0.0
         self.total_weight = 0.0
 

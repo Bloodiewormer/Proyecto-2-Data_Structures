@@ -31,33 +31,38 @@ class CityMap:
 
     def load_map(self) -> bool:
         try:
-            # Intentar cargar desde API
+            # Intentar cargar desde API (ya guarda backup automáticamente)
             if self.api_client:
                 map_data = self.api_client.get_map()
                 if map_data:
                     self._parse_map_data(map_data)
-                    # Guardar copia de respaldo
-                    save_json(map_data, str(self.map_backup_file))
                     print("Mapa cargado desde API")
                     return True
 
         except Exception as e:
             print(f"Error al cargar mapa desde API: {e}")
 
-        # Cargar desde archivo de respaldo
+        # Cargar desde backup offline
         try:
-            backup_data = load_json(str(self.map_backup_file))
+            backup_data = self._load_json(str(self.map_backup_file))
             if backup_data:
                 self._parse_map_data(backup_data)
-                print("Mapa cargado desde archivo de respaldo")
+                print("Mapa cargado desde backup offline")
                 return True
         except Exception as e:
-            print(f"Error al cargar mapa desde respaldo: {e}")
+            print(f"Error al cargar mapa desde backup: {e}")
 
-        # Si todo falla, usar mapa por defecto
         self._create_default_map()
         print("Usando mapa por defecto")
         return True
+
+    def _load_json(self, filepath: str) -> Dict[str, Any]:
+        """Cargar JSON local"""
+        try:
+            with open(filepath, 'r', encoding='utf-8') as f:
+                return json.load(f)
+        except Exception:
+            return {}
 
 
 
