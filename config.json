@@ -13,15 +13,15 @@
     },
     "game": {
         "tile_size": 32,
-        "time_limit_minutes": 5,
+        "time_limit_minutes": 6,
         "initial_reputation": 70,
-        "initial_stamina": 100,
-        "goal_earnings": 500,
-        "order_release_seconds": 10
+        "initial_stamina": 1100,
+        "goal_earnings": 1150,
+        "order_release_seconds": 40
     },
     "player": {
-        "base_speed": 10,
-        "move_speed": 10,
+         "base_speed": 3.0,
+        "move_speed": 3.0,
         "turn_speed": 1.5,
         "max_inventory_weight": 6
     },
@@ -35,15 +35,15 @@
           "save_interval": 0.5
     },
     "reputation_changes": {
-        "delivery_on_time": 3,
-        "delivery_early": 5,
-        "delivery_late_minor": -2,
-        "delivery_late_moderate": -5,
-        "delivery_late_severe": -10,
-        "cancel_order": -4,
-        "expire_order": -6,
-        "streak_bonus": 2,
-        "streak_threshold": 3
+        "delivery_on_time": 6,
+        "delivery_early": 10,
+        "delivery_late_minor": -4,
+        "delivery_late_moderate": -10,
+        "delivery_late_severe": -20,
+        "cancel_order": -8,
+        "expire_order": -12,
+        "streak_bonus": 4,
+        "streak_threshold": 6
     },
     "reputation_thresholds": {
         "critical": 20,
