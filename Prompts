@@ -12,3 +12,61 @@ Remeber we are using Arcade 3.3.2
 // Prompt: Generate visual velocimeter using arcade library in python that changes color a randomly do +1.5 or -1.5 for more realism
 
 
+
+Prompt: ¿Cómo puedo hacer que el jugador se mueva hacia donde está mirando usando su ángulo? No entiendo cómo convertir el ángulo en movimiento x,y
+
+
+Prompt: ¿Cómo verifico si el jugador chocó con una pared? Tengo la posición del jugador en flotantes pero el mapa usa enteros
+
+
+Prompt: No entiendo cómo funciona el ray casting. ¿Puedes explicar cómo saber dónde un rayo choca con una pared?
+
+
+Prompt: ¿Cuándo debo usar una lista y cuándo un diccionario para guardar los pedidos? ¿Cuál es más rápido?
+
+
+Prompt: Tengo las coordenadas del mundo del juego pero no sé cómo dibujarlas en la pantalla. ¿Cómo convierto coordenadas del mapa a píxeles?
+
+
+Prompt: ¿Cómo guardo el juego en un archivo? ¿Es mejor usar JSON o hay otra forma más fácil?
+
+
+Prompt: Necesito ordenar los pedidos por prioridad. ¿Cómo uso sort() con una lista de objetos?
+
+Prompt: ¿Cómo hago una cuenta regresiva de 15 minutos? ¿Debo usar time.time() o delta_time?
+
+
+Prompt: Mi jugador atraviesa las paredes. ¿Cómo verifico la colisión antes de mover al jugador?
+
+
+Prompt: ¿Cómo calculo si el jugador está cerca de un punto de entrega? ¿Qué fórmula uso para la distancia?
+
+
+Prompt: ¿Cómo dibujo una barra de vida en arcade? No entiendo los parámetros de draw_rectangle
+
+
+Prompt: Tengo un menú y el juego, pero no sé cómo cambiar entre ellos. ¿Cómo manejo diferentes pantallas?
+
+
+Prompt: Tengo un archivo JSON con los pedidos pero me da error al leerlo. ¿Cómo lo cargo correctamente en Python?
+
+
+Prompt: ¿Cómo busco un pedido por su ID en mi lista de pedidos? ¿Hay una forma más rápida que un for?
+
+
+Prompt: ¿Cómo detecto si el jugador mantiene presionada una tecla para moverse continuamente y no solo un toque?
+
+
+Prompt: Mi jugador se mueve muy rápido o muy lento. ¿Cómo controlo la velocidad usando delta_time?
+
+
+Prompt: La velocidad del jugador depende del clima, peso y cansancio. ¿Cómo multiplico todos estos factores correctamente?
+
+
+Prompt: ¿Qué significa cachear datos y por qué debo hacerlo? ¿Cuándo es necesario?
+
+
+Prompt: Mi stamina puede ser negativa o mayor a 100. ¿Cómo limito un valor entre un mínimo y máximo?
+
+
+Prompt: Mi juego va lento cuando hay muchos rayos. ¿Cómo calculo los FPS y qué puedo hacer para mejorar el rendimiento?
