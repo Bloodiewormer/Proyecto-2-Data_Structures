@@ -155,6 +155,11 @@ class saveManager:
                     "base_speed": float(getattr(player, "base_speed", 3.0)),
                     "turn_speed": float(getattr(player, "turn_speed", 1.5)),
                     "move_speed": float(getattr(player, "move_speed", 3.0))
+                },
+                "undo": {
+                    "stack": list(getattr(player, "undo_stack", [])),
+                    "last_undo_time": float(getattr(player, "last_undo_time", 0.0)),
+                    "last_undo_save_time": float(getattr(player, "last_undo_save_time", 0.0))
                 }
             }
         except Exception as e:
@@ -282,8 +287,24 @@ class saveManager:
             player.weather_speed_multiplier = float(effects.get("weather_speed_multiplier", 1.0))
             player.weather_stamina_drain = float(effects.get("weather_stamina_drain", 0.0))
 
-            print(f"✓ Jugador restaurado en posición ({player.x:.1f}, {player.y:.1f})")
-            print(f"✓ Estadísticas: ${player.earnings:.0f}, Rep: {player.reputation:.0f}")
+            if "undo" in player_data:
+                undo_data = player_data["undo"]
+
+                # restaurar stack (convertir lista a deque)
+                from collections import deque
+                saved_stack = undo_data.get("stack", [])
+                player.undo_stack = deque(
+                    saved_stack,
+                    maxlen=getattr(player, 'max_undo_steps', 50)
+                )
+
+                # restaurar timestamps
+                player.last_undo_time = float(undo_data.get("last_undo_time", 0.0))
+                player.last_undo_save_time = float(undo_data.get("last_undo_save_time", 0.0))
+
+                print(f"stack de undo restaurado ({len(player.undo_stack)} estados)")
+            print(f"Jugador restaurado en posición ({player.x:.1f}, {player.y:.1f})")
+            print(f"Estadísticas: ${player.earnings:.0f}, Rep: {player.reputation:.0f}")
 
             return True
 
