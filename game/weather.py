@@ -323,7 +323,6 @@ class WeatherSystem:
 
 
     def _select_next_condition(self) -> str:
-        """Seleccionar siguiente condición usando probabilidades de Markov"""
         probabilities = self.transition_matrix.get(self.current_condition, {})
 
         if not probabilities:
@@ -348,7 +347,6 @@ class WeatherSystem:
         return conditions[-1]  # Fallback
 
     def _apply_weather_effects(self, player):
-        """Aplicar efectos del clima al jugador"""
         # Obtener multiplicadores interpolados durante la transición
         speed_multiplier = self._get_interpolated_speed_multiplier()
         stamina_drain = self._get_interpolated_stamina_drain()
@@ -357,7 +355,6 @@ class WeatherSystem:
         player.apply_weather_effects(speed_multiplier, stamina_drain)
 
     def _get_interpolated_speed_multiplier(self) -> float:
-        """Obtener multiplicador de velocidad interpolado durante transición"""
         current_mult = self.speed_multipliers.get(self.current_condition, 1.0)
 
         if not self.transitioning:
@@ -367,7 +364,6 @@ class WeatherSystem:
         return lerp(previous_mult, current_mult, self.transition_progress)
 
     def _get_interpolated_stamina_drain(self) -> float:
-        """Obtener drenaje de resistencia interpolado durante transición"""
         current_drain = self.stamina_drains.get(self.current_condition, 0.0)
 
         if not self.transitioning:
@@ -379,7 +375,6 @@ class WeatherSystem:
 
     @property
     def sky_color(self) -> Tuple[int, int, int]:
-        """Obtener color del cielo interpolado"""
         current_color = self.sky_colors.get(self.current_condition, (135, 206, 235))
 
         if not self.transitioning:
@@ -396,7 +391,6 @@ class WeatherSystem:
 
     @property
     def cloud_color(self) -> Tuple[int, int, int]:
-        """Obtener color de las nubes interpolado"""
         current_color = self.cloud_colors.get(self.current_condition, (255, 255, 255))
 
         if not self.transitioning:
@@ -412,7 +406,6 @@ class WeatherSystem:
         return (r, g, b)
 
     def get_weather_info(self) -> Dict[str, Any]:
-        """Obtener información del clima actual"""
         return {
             "condition": self.current_condition,
             "intensity": self.current_intensity,
@@ -441,7 +434,6 @@ class WeatherSystem:
         return names.get(self.current_condition, "Desconocido")
 
     def force_weather_change(self, condition: str, intensity: float = None):
-        """Forzar cambio de clima (para debugging/testing)"""
         if condition in self.speed_multipliers:
             self.previous_condition = self.current_condition
             self.previous_intensity = self.current_intensity
@@ -460,7 +452,6 @@ class WeatherSystem:
 
 
     def _load_json(self, filepath: str) -> Dict[str, Any]:
-        """Cargar JSON local"""
         try:
             with open(filepath, 'r', encoding='utf-8') as f:
                 return json.load(f)

@@ -1,10 +1,9 @@
 import arcade
 from typing import List, Optional, Dict, Any
 from game.orders import Order
-from datetime import datetime
     
 class Inventory:    
-    """Maneja el inventario del jugador, incluyendo capacidad y peso"""
+
     def __init__(self, max_weight: float = 10.0):
         self.max_weight = max_weight
         self.orders: List[Order] = []
@@ -22,7 +21,7 @@ class Inventory:
         self.target_x = 0
         self.target_y = 0
 
-    @property # property hace que se pueda acceder como atributo (no como método)
+    @property
     def current_weight(self) -> float:
         """Calcula el peso total actual del inventario"""
         return sum(order.weight for order in self.orders)

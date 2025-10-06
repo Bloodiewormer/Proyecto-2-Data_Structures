@@ -7,34 +7,5 @@ Collision detection
 Sistema de caché
 Cadenas de Markov
 Interpolación lineal
-inventario
-
-
-
-
-
--cambia cada 20/30 para tantear 
-
-
-
-
-retraso o cancelamientos reducen la reputacion
-con reputacion +90 es igual a +5 extra en pagos
-
-si la reputacion es menor a 20 se termina el juego
-victoria cuando uno acaba la meta antes de que se acabe el tiempo
-tiempo limite no hay falta definir
-
-//Cosas por hacer
-Guia visual para que el ususario sepa que hacer
-I Para abrir el inventario
-O para Abrir Mene de opcio
-
-Finalmente, deben tener una opción de “deshacer” N cantidad de pasos por parte del jugador para volver a
-un estado anterior. (Ni idea como implementarlo)
-
-
-
-
 
 

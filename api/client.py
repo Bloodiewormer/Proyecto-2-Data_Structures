@@ -56,7 +56,6 @@ class APIClient:
             if self.cache:
                 self.cache.save(cache_key, data)
 
-            # NUEVO: Guardar como backup offline
             self._save_backup(cache_key, data)
 
             self.is_online = True
@@ -73,7 +72,6 @@ class APIClient:
             return self._get_from_cache_or_backup(cache_key)
 
     def _save_backup(self, cache_key: str, data: Dict[str, Any]):
-        """Guardar backup offline en data/"""
         backup_files = {
             "map": "data/ciudad.json",
             "orders": "data/pedidos.json",
@@ -161,16 +159,13 @@ class APIClient:
         }
 
     def clear_cache(self):
-        """Limpia el caché de la API"""
         if self.cache:
             self.cache.clear()
             print("Caché de API limpiado")
 
     def __enter__(self):
-        """Context manager entry"""
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb):
-        """Context manager exit - cierra la session"""
         if self.session:
             self.session.close()

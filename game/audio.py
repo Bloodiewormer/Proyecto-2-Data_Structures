@@ -16,7 +16,6 @@ class AudioManager:
         print(f"AudioManager inicializado - Volumen: {self.music_volume * 100:.0f}%")
 
     def set_music_volume(self, volume_percent: float):
-        """Establecer volumen de música (0-100)"""
         self.music_volume = max(0.0, min(1.0, volume_percent / 100.0))
 
         # Aplicar al reproductor actual si existe

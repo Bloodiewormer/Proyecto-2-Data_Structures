@@ -1,7 +1,7 @@
 from __future__ import annotations
 import os
 import json
-from typing import Any, List, Dict, Optional
+from typing import Any, List, Dict
 from datetime import datetime
 
 import arcade
@@ -97,7 +97,6 @@ class ScoreManager:
 
 
 class ScoreScreen:
-    """Overlay de fin de partida. Dibuja resultados y top de puntajes. Maneja teclas: Enter/Esc -> Menú, R -> Nuevo juego."""
     def __init__(self, game, entry: Dict[str, Any], leaderboard: List[Dict[str, Any]]):
         self.game = game
         self.entry = entry

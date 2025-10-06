@@ -1,12 +1,9 @@
-# file: game/gamestate.py
 import arcade
 from enum import Enum
-from typing import Dict, Any, Optional
 from pathlib import Path
 
 
 class GameState(Enum):
-    """Estados posibles del juego"""
     MAIN_MENU = "main_menu"
     PLAYING = "playing"
     PAUSED = "paused"
@@ -16,21 +13,17 @@ class GameState(Enum):
 
 
 class GameStateManager:
-    """Administrador de estados del juego"""
 
     def __init__(self, game_instance):
         self.settings_menu = None
         self.game = game_instance
         self.current_state = GameState.MAIN_MENU
         self.previous_state = None
-
-        # Referencias a menús
         self.main_menu = None
         self.pause_menu = None
         self.settings_menu = None
 
     def change_state(self, new_state: GameState):
-        """Cambiar el estado del juego"""
         print(f"Cambiando estado: {self.current_state.value} -> {new_state.value}")
 
         self.previous_state = self.current_state
@@ -49,41 +42,33 @@ class GameStateManager:
             self._show_settings()
 
     def _show_settings(self):
-        """Mostrar menú de configuraciones"""
         if not self.settings_menu:
             from game.settings import SettingsMenu
             self.settings_menu = SettingsMenu(self.game)
         print("Menú de settings inicializado")
 
     def _show_main_menu(self):
-        """Mostrar menú principal"""
         if not self.main_menu:
             self.main_menu = MainMenu(self.game)
 
     def _resume_game(self):
-        """Reanudar el juego"""
         pass
 
     def _show_pause_menu(self):
-        """Mostrar menú de pausa"""
         if not self.pause_menu:
             self.pause_menu = PauseMenu(self.game)
 
     def _show_game_over(self):
-        """Mostrar pantalla de game over"""
         pass
 
     def is_game_active(self) -> bool:
-        """Verificar si el juego está activo (no en menú)"""
         return self.current_state == GameState.PLAYING
 
     def is_game_paused(self) -> bool:
-        """Verificar si el juego está pausado"""
         return self.current_state == GameState.PAUSED
 
 
 class MainMenu:
-    """Menú principal del juego"""
 
     def __init__(self, game_instance):
         self.game = game_instance
@@ -93,18 +78,15 @@ class MainMenu:
         # Verificar si existe una partida guardada
         self.has_saved_game = self._check_saved_game()
 
-        # Si no hay partida guardada, deshabilitar "Cargar Partida"
         if not self.has_saved_game:
             self.disabled_options = [1]
         else:
             self.disabled_options = []
 
-        # Cargar imagen de fondo
         self.background_texture = None
         self._load_background_image()
 
     def _check_saved_game(self) -> bool:
-        """Verificar si existe una partida guardada"""
         try:
             save_dir = Path(self.game.app_config.get("files", {}).get("save_directory", "saves"))
             save_file = save_dir / "savegame.sav"
@@ -113,9 +95,7 @@ class MainMenu:
             return False
 
     def _load_background_image(self):
-        """Cargar imagen de fondo del menú"""
         try:
-            # Intentar cargar desde assets/images/menu_background.png
             bg_path = Path("assets/images/menu_background.png")
 
             if bg_path.exists():
@@ -129,7 +109,6 @@ class MainMenu:
             self.background_texture = None
 
     def draw(self):
-        """Dibujar el menú principal"""
         width = self.game.width
         height = self.game.height
 
@@ -321,7 +300,7 @@ class MainMenu:
     def _get_save_info(self) -> str:
         """Obtener información básica de la partida guardada"""
         try:
-            from game.saveManager import SaveManager
+            from game.SaveManager import SaveManager
             save_manager = SaveManager(self.game.app_config)
             info = save_manager.get_save_info()
             if info:

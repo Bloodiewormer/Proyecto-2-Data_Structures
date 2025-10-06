@@ -2,9 +2,6 @@ import json
 from typing import Dict, Any, List, Tuple, Optional
 from pathlib import Path
 
-from .utils import load_json, save_json
-
-
 class CityMap:
 
     def __init__(self, api_client, config: Dict[str, Any]):
@@ -31,7 +28,7 @@ class CityMap:
 
     def load_map(self) -> bool:
         try:
-            # Intentar cargar desde API (ya guarda backup automáticamente)
+            # Intentar cargar desde API
             if self.api_client:
                 map_data = self.api_client.get_map()
                 if map_data:
@@ -57,7 +54,6 @@ class CityMap:
         return True
 
     def _load_json(self, filepath: str) -> Dict[str, Any]:
-        """Cargar JSON local"""
         try:
             with open(filepath, 'r', encoding='utf-8') as f:
                 return json.load(f)
@@ -104,8 +100,7 @@ class CityMap:
                             not self.is_wall(x, y)):
                         return (float(x), float(y))
 
-        # Fallback: esquina superior izquierda
-        return (1.0, 1.0)
+        return 1.0, 1.0
 
 
     def _parse_map_data(self, map_data: Dict[str, Any]):
@@ -133,7 +128,6 @@ class CityMap:
 
 
     def _create_default_map(self):
-        """Crea un mapa por defecto si no se puede cargar desde API o archivo"""
         self.width = 20
         self.height = 15
         self.version = "1.0"

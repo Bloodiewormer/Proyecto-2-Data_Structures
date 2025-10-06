@@ -1,16 +1,13 @@
-# file: game/settings.py
 import arcade
-from typing import Dict, Any, Optional
+
 
 
 class SettingsMenu:
-    """Menú de configuraciones del juego"""
 
     def __init__(self, game_instance):
         self.game = game_instance
         self.selected_option = 0
 
-        # Opciones configurables
         self.options = [
             "Resolución",
             "Rayos (Calidad)",

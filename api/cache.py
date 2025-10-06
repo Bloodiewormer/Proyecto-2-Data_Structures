@@ -18,7 +18,6 @@ class APICache:
             "weather": timedelta(minutes=15)   # Clima puede cambiar cada 15 minutos
         }
 
-        # Archivo de índice para metadata
         self.index_file = self.cache_dir / "cache_index.json"
         self.index = self._load_index()
 
@@ -129,12 +128,10 @@ class APICache:
 
     def clear(self) -> bool:
         try:
-            # Eliminar todos los archivos de caché
             for cache_file in self.cache_dir.glob("*.json"):
                 if cache_file.name != "cache_index.json":
                     cache_file.unlink()
 
-            # Limpiar índice
             self.index.clear()
             self._save_index()
 
@@ -198,7 +195,6 @@ class APICache:
         return removed_count
 
     def _load_index(self) -> Dict[str, Any]:
-        """Carga el índice del caché desde archivo"""
         try:
             if self.index_file.exists():
                 with open(self.index_file, 'r', encoding='utf-8') as f:
@@ -209,7 +205,6 @@ class APICache:
         return {}
 
     def _save_index(self) -> bool:
-        """Guarda el índice del caché en archivo"""
         try:
             with open(self.index_file, 'w', encoding='utf-8') as f:
                 json.dump(self.index, f, indent=2, ensure_ascii=False)
@@ -219,7 +214,6 @@ class APICache:
             return False
 
     def _remove_expired_entry(self, key: str):
-        """Remueve una entrada expirada"""
         try:
             if key in self.index:
                 entry_info = self.index[key]
@@ -235,7 +229,6 @@ class APICache:
             print(f"Error al remover entrada expirada {key}: {e}")
 
     def _cleanup_if_needed(self):
-        """Limpia el caché si excede el tamaño máximo"""
         try:
             stats = self.get_cache_stats()
 
@@ -251,7 +244,6 @@ class APICache:
             print(f"Error en limpieza automática de caché: {e}")
 
     def _cleanup_oldest_entries(self):
-        """Elimina las entradas más antiguas para liberar espacio"""
         try:
             # Ordenar entradas por timestamp (más antiguas primero)
             sorted_entries = sorted(
@@ -259,7 +251,6 @@ class APICache:
                 key=lambda x: x[1]["timestamp"]
             )
 
-            # Eliminar hasta que esté por debajo del límite
             for key, _ in sorted_entries:
                 self.remove(key)
 

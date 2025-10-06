@@ -95,7 +95,6 @@ def _is_building_perimeter(city, col, row) -> bool:
     return False
 
 def find_nearest_building(city, x, y):
-    # 1) Buscar el B de perímetro más cercano
     min_dist = float("inf")
     nearest = None
     for row in range(city.height):

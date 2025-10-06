@@ -59,9 +59,6 @@ Prompt: ¿Cómo detecto si el jugador mantiene presionada una tecla para moverse
 Prompt: Mi jugador se mueve muy rápido o muy lento. ¿Cómo setteo la velocidad del jugador?
 
 
-Prompt: La velocidad del jugador depende del clima, peso y cansancio. ¿Cómo multiplico todos estos factores correctamente?
-
-
 Prompt: ¿Cómo se centra un dibujo de arcade en pantalla (draw rectangle)?
 
 

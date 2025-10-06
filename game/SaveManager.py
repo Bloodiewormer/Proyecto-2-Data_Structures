@@ -1,21 +1,15 @@
-# file: game/savemanager.py
 import pickle
-import os
 import shutil
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, Any, Optional, List, Tuple
+from typing import Dict, Any, Optional, List
 
 
-class saveManager:
-    """Administrador de guardado y carga de partidas (formato binario)"""
-
+class SaveManager:
     def __init__(self, config: Dict[str, Any]):
-        # Configuración de directorios
         self.save_directory = Path(config.get("files", {}).get("save_directory", "saves"))
         self.save_directory.mkdir(parents=True, exist_ok=True)
 
-        # Archivos principales (ahora con extensión .sav)
         self.save_file = self.save_directory / "savegame.sav"
         self.backup_file = self.save_directory / "savegame_backup.sav"
         self.autosave_file = self.save_directory / "autosave.sav"
@@ -25,7 +19,6 @@ class saveManager:
         self.compress_saves = False
 
     def save_game(self, player, city, orders_data=None, game_stats=None) -> bool:
-        """Guardar el estado completo del juego en formato binario"""
         try:
             print("Iniciando guardado de partida (binario)...")
 

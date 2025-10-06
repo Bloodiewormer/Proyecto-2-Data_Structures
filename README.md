@@ -607,7 +607,7 @@ El sistema implementa un caché inteligente con:
 
 ### Guardado Binario
 
-**Archivo:** `game/saveManager.py`
+**Archivo:** `game/SaveManager.py`
 
 El juego utiliza **formato binario (pickle)** para guardar partidas:
 
@@ -675,7 +675,7 @@ score_final = max(0, score_base + bonus_tiempo - penalizaciones)
 - **ordersWindow.py:** Interfaz de ventana de pedidos disponibles
 - **audio.py:** Administrador de música y efectos de sonido
 - **gamestate.py:** Máquina de estados (menús, pausa, jugando)
-- **saveManager.py:** Guardado/carga de partidas en formato binario
+- **SaveManager.py:** Guardado/carga de partidas en formato binario
 - **score.py:** Sistema de puntuación y leaderboard
 - **settings.py:** Menú de configuración
 - **utils.py:** Funciones auxiliares (lerp, clamp, distancias)
