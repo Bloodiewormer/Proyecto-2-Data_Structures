@@ -351,14 +351,43 @@ class RayCastRenderer:
         if not self._minimap_shapes:
             return
         self._minimap_shapes.draw()
+
         scale_x = size / max(1, self.city.width)
         scale_y = size / max(1, self.city.height)
+
+        # Dibujar puntos de recogida y entrega según estado de pedidos
+        if hasattr(player, 'inventory') and player.inventory:
+            # Pedidos en inventario del jugador
+            for order in player.inventory.orders:
+                # Punto de recogida (verde) - solo si el pedido está "in_progress" (aceptado pero no recogido)
+                if order.status == "in_progress":
+                    pickup_x = x + (order.pickup_pos[0] + 0.5) * scale_x
+                    pickup_y = y + (order.pickup_pos[1] + 0.5) * scale_y
+                    # Círculo verde para pickup
+                    arcade.draw_circle_filled(pickup_x, pickup_y, max(4, int(min(scale_x, scale_y) * 0.4)), arcade.color.YELLOW_ROSE)
+                    # Borde blanco para mejor visibilidad
+                    arcade.draw_circle_outline(pickup_x, pickup_y, max(4, int(min(scale_x, scale_y) * 0.4)),
+                                               arcade.color.COOL_BLACK, 1.5)
+
+                # Punto de entrega (rojo) - solo si el pedido está "picked_up" (ya recogido)
+                if order.status == "picked_up":
+                    dropoff_x = x + (order.dropoff_pos[0] + 0.5) * scale_x
+                    dropoff_y = y + (order.dropoff_pos[1] + 0.5) * scale_y
+                    # Círculo rojo para dropoff
+                    arcade.draw_circle_filled(dropoff_x, dropoff_y, max(4, int(min(scale_x, scale_y) * 0.4)),arcade.color.RED)
+                    # Borde blanco para mejor visibilidad
+                    arcade.draw_circle_outline(dropoff_x, dropoff_y, max(4, int(min(scale_x, scale_y) * 0.4)),arcade.color.COOL_BLACK, 1.5)
+
+        # Dibujar jugador encima
         px = x + (player.x + 0.5) * scale_x
         py = y + (player.y + 0.5) * scale_y
         arcade.draw_circle_filled(px, py, max(2, int(min(scale_x, scale_y) * 0.3)), self.color_map["player"])
+
+        # Flecha de dirección del jugador
         fx = math.cos(player.angle)
         fy = math.sin(player.angle)
         arcade.draw_line(px, py, px + fx * 10, py + fy * 10, self.color_map["player"], 2)
+
         t1 = time.perf_counter()
         self._perf_accum["minimap"] += (t1 - t0)
 
@@ -423,3 +452,12 @@ class RayCastRenderer:
         if self.city.tiles[tile_y][tile_x] != "B":
             return
         self.door_positions.add((tile_x, tile_y))
+
+    def _draw_hud(self):
+        earnings = self.player.earnings if self.player else 0.0
+        reputation = self.player.reputation if self.player else 0.0
+        # ... código existente ...
+        # CAMBIAR ESTA LÍNEA:
+        goal_earnings = float(self.app_config.get("game", {}).get("goal_earnings", 500))
+        progress = (earnings / goal_earnings) * 100 if goal_earnings > 0 else 0
+        # ... resto del código sin cambios

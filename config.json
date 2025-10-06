@@ -13,11 +13,11 @@
     },
     "game": {
         "tile_size": 32,
-        "time_limit_minutes": 10,
-        "initial_reputation": 31,
+        "time_limit_minutes": 5,
+        "initial_reputation": 70,
         "initial_stamina": 100,
-        "goal_earnings": 1100,
-        "order_release_seconds": 5
+        "goal_earnings": 500,
+        "order_release_seconds": 60
     },
     "player": {
         "base_speed": 10,
@@ -29,6 +29,30 @@
         "fov": 1.047,
         "num_rays": 75,
         "floor_row_step": 2
+    },
+    "reputation_changes": {
+        "delivery_on_time": 3,
+        "delivery_early": 5,
+        "delivery_late_minor": -2,
+        "delivery_late_moderate": -5,
+        "delivery_late_severe": -10,
+        "cancel_order": -4,
+        "expire_order": -6,
+        "streak_bonus": 2,
+        "streak_threshold": 3
+    },
+    "reputation_thresholds": {
+        "critical": 20,
+        "excellent": 90,
+        "bonus_first_late": 85
+    },
+    "payment_modifiers": {
+        "excellent_bonus": 1.05,
+        "first_late_penalty": 0.5
+    },
+    "delivery_time_thresholds": {
+        "late_minor": 30,
+        "late_moderate": 120
     },
     "api": {
         "base_url": "https://tigerds-api.kindflower-ccaf48b6.eastus.azurecontainerapps.io",

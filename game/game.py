@@ -1,6 +1,5 @@
 import traceback
 
-import api.client
 import time
 import arcade
 from typing import Optional
@@ -15,7 +14,7 @@ from game.city import CityMap
 from game.player import Player
 from game.renderer import RayCastRenderer
 from game.weather import WeatherSystem
-from game.utils import find_nearest_building, format_time
+from game.utils import format_time
 from game.gamestate import GameStateManager, GameState
 from game.saveManager import saveManager
 from game.audio import AudioManager
@@ -32,6 +31,7 @@ class CourierGame(arcade.Window):
         self.frame_times = []
         self.performance_counter = 0
         self.orders_data = {}
+        game_config = app_config.get("game", {})
 
         self.state_manager = GameStateManager(self)
         self.save_manager = saveManager(app_config)
@@ -61,7 +61,7 @@ class CourierGame(arcade.Window):
         self.game_start_time = 0
         self.total_play_time = 0
         self.last_update_time = 0
-        self.time_limit = app_config.get("game", {}).get("time_limit_minutes", 15) * 60  # Convertir a segundos
+        self.time_limit = game_config.get("time_limit_minutes", 15) * 60
         self.time_remaining = self.time_limit
 
         # radio para recoger/entregar en tiles
@@ -562,10 +562,9 @@ class CourierGame(arcade.Window):
             self._end_game(False, "¡Reputación muy baja!")
             return
 
-        # Verificar victoria (meta de dinero alcanzada)
-        goal_earnings = int(self.app_config.get("game", {}).get("goal_earnings", 500))
+        # CAMBIAR ESTA LÍNEA:
+        goal_earnings = float(self.app_config.get("game", {}).get("goal_earnings", 500))
         if self.player.earnings >= goal_earnings:
-            # Calcular bonus por terminar temprano
             time_bonus = max(0, self.time_remaining / self.time_limit)
             bonus_message = f"¡Victoria! Bonus de tiempo: +{time_bonus * 100:.0f}%"
             self._end_game(True, bonus_message)

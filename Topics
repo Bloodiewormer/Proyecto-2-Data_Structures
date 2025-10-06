@@ -26,13 +26,14 @@ victoria cuando uno acaba la meta antes de que se acabe el tiempo
 tiempo limite no hay falta definir
 
 //Cosas por hacer
-Mostra Pedidos en el mapa de forma visual y que sea solo el pickup o el dropoff no ambos
 hacer que la cantidad de ganancia y perdida de reputacion sea accesible desde confing y el tiempo de entrega tambien
+Hacer que los constantes de reputacion y dinero sean accesibles desde config
+hacer que los datos en el config si modifiquen en la aplicacion y no sea decorativos
+
 
 Finalmente, deben tener una opción de “deshacer” N cantidad de pasos por parte del jugador para volver a
 un estado anterior. (Ni idea como implementarlo)
 
-Hacer que los constantes de reputacion y dinero sean accesibles desde config
 
 
 

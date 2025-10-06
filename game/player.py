@@ -4,6 +4,7 @@ from typing import Dict, Any, Tuple, Optional
 from .utils import clamp, normalize_angle
 from .inventory import Inventory
 from game.orders import Order 
+from datetime import datetime
 
 class PlayerState:
     NORMAL = "normal"      # >30 stamina
@@ -21,10 +22,39 @@ class Player:
         self.move_speed = config.get("move_speed", 3.0)
 
         # Atributos dinámicos se deben cambiar en config.json
-        self.stamina = 100.0
-        self.reputation = config.get("initial_reputation", 90.0)
+        game_config = config.get("game", {}) if "game" in config else {}
+        self.stamina = float(game_config.get("initial_stamina", 100.0))
+        self.reputation = float(game_config.get("initial_reputation", 70.0))
         self.earnings = 0.0
         self.total_weight = 0.0
+
+        self.rep_changes = game_config.get("reputation_changes", {
+            "delivery_on_time": 3,
+            "delivery_early": 5,
+            "delivery_late_minor": -2,
+            "delivery_late_moderate": -5,
+            "delivery_late_severe": -10,
+            "cancel_order": -4,
+            "expire_order": -6,
+            "streak_bonus": 2,
+            "streak_threshold": 3
+        })
+
+        self.rep_thresholds = game_config.get("reputation_thresholds", {
+            "critical": 20,
+            "excellent": 90,
+            "bonus_first_late": 85
+        })
+
+        self.payment_mods = game_config.get("payment_modifiers", {
+            "excellent_bonus": 1.05,
+            "first_late_penalty": 0.5
+        })
+
+        self.delivery_thresholds = game_config.get("delivery_time_thresholds", {
+            "late_minor": 30,
+            "late_moderate": 120
+        })
 
         #inventario 
         max_inventory_weight = config.get("max_inventory_weight", 10.0)
@@ -104,20 +134,66 @@ class Player:
         self.weather_stamina_drain = stamina_drain
 
     def add_earnings(self, amount: float):
-        if self.reputation >= 90:
-            amount *= 1.05
+        if self.reputation >= self.rep_thresholds.get("excellent", 90):
+            amount *= self.payment_mods.get("excellent_bonus", 1.05)
         self.earnings += amount
 
     def update_reputation_for_delivery(self, order):
-        self.reputation = clamp(self.reputation + 3, 0, 100)
+
+        # Calcular si fue a tiempo, temprano o tarde
+        if hasattr(order, 'deadline') and order.deadline:
+            try:
+                if isinstance(order.deadline, str):
+                    deadline_dt = datetime.fromisoformat(order.deadline.replace('Z', '+00:00'))
+                else:
+                    deadline_dt = order.deadline
+
+                now = datetime.now(deadline_dt.tzinfo) if deadline_dt.tzinfo else datetime.now()
+                time_diff = (deadline_dt - now).total_seconds()
+
+                # Calcular porcentaje de tiempo restante
+                time_margin = time_diff / order.time_limit if hasattr(order, 'time_limit') and order.time_limit > 0 else 0
+
+                # Entrega temprana (≥20% del tiempo antes)
+                if time_margin >= 0.20:
+                    rep_change = self.rep_changes.get("delivery_early", 5)
+                # A tiempo
+                elif time_diff >= 0:
+                    rep_change = self.rep_changes.get("delivery_on_time", 3)
+                # Tarde
+                else:
+                    late_seconds = abs(time_diff)
+                    if late_seconds <= self.delivery_thresholds.get("late_minor", 30):
+                        rep_change = self.rep_changes.get("delivery_late_minor", -2)
+                    elif late_seconds <= self.delivery_thresholds.get("late_moderate", 120):
+                        rep_change = self.rep_changes.get("delivery_late_moderate", -5)
+                    else:
+                        rep_change = self.rep_changes.get("delivery_late_severe", -10)
+
+                    # Primera tardanza del día con reputación alta
+                    if self.reputation >= self.rep_thresholds.get("bonus_first_late", 85):
+                        rep_change *= self.payment_mods.get("first_late_penalty", 0.5)
+            except Exception:
+                # Fallback: asumir entrega a tiempo
+                rep_change = self.rep_changes.get("delivery_on_time", 3)
+        else:
+            # Sin deadline: asumir entrega a tiempo
+            rep_change = self.rep_changes.get("delivery_on_time", 3)
+
+        self.reputation = clamp(self.reputation + rep_change, 0, 100)
         self.deliveries_completed += 1
         self.consecutive_on_time += 1
-        if self.consecutive_on_time >= 3:
-            self.reputation = clamp(self.reputation + 2, 0, 100)
+
+        # Bonus por racha
+        streak_threshold = self.rep_changes.get("streak_threshold", 3)
+        if self.consecutive_on_time >= streak_threshold:
+            streak_bonus = self.rep_changes.get("streak_bonus", 2)
+            self.reputation = clamp(self.reputation + streak_bonus, 0, 100)
             self.consecutive_on_time = 0
 
     def cancel_order(self):
-        self.reputation = clamp(self.reputation - 4, 0, 100)
+        penalty = self.rep_changes.get("cancel_order", -4)
+        self.reputation = clamp(self.reputation + penalty, 0, 100)
         self.orders_cancelled += 1
         self.consecutive_on_time = 0
 
@@ -149,8 +225,8 @@ class Player:
             speed *= weight_penalty
 
         # Mrep
-        if self.reputation >= 90:
-            speed *= 1.03
+        if self.reputation >= self.rep_thresholds.get("excellent", 90):
+            speed *= self.payment_mods.get("excellent_bonus", 1.03)
 
         # Mresistencia
         if self.state == PlayerState.TIRED:
@@ -215,7 +291,7 @@ class Player:
         return self.reputation / 100.0
 
     def is_reputation_critical(self) -> bool:
-        return self.reputation < 20
+        return self.reputation < self.rep_thresholds.get("critical", 20)
 
     def get_stats_summary(self) -> Dict[str, Any]:
         return {
