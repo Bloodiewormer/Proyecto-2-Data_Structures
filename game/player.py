@@ -1,15 +1,18 @@
-# file: game/player.py
 import math
-from typing import Dict, Any, Tuple, Optional
+import copy
+from typing import Dict, Any, Tuple, Optional, List
+from collections import deque
 from .utils import clamp, normalize_angle
 from .inventory import Inventory
-from game.orders import Order 
+from game.orders import Order
 from datetime import datetime
 
+
 class PlayerState:
-    NORMAL = "normal"      # >30 stamina
-    TIRED = "tired"        # 10-30 stamina
-    EXHAUSTED = "exhausted"  # 0-10 stamina
+    NORMAL = "normal"
+    TIRED = "tired"
+    EXHAUSTED = "exhausted"
+
 
 class Player:
     def __init__(self, start_x: float, start_y: float, config: Dict[str, Any]):
@@ -21,7 +24,6 @@ class Player:
         self.turn_speed = config.get("turn_speed", 1.5)
         self.move_speed = config.get("move_speed", 3.0)
 
-        # Atributos dinámicos se deben cambiar en config.json
         game_config = config.get("game", {}) if "game" in config else {}
         self.stamina = float(game_config.get("initial_stamina", 100.0))
         self.reputation = float(game_config.get("initial_reputation", 70.0))
@@ -56,7 +58,6 @@ class Player:
             "late_moderate": 120
         })
 
-        #inventario 
         max_inventory_weight = config.get("max_inventory_weight", 10.0)
         self.inventory = Inventory(max_inventory_weight)
 
@@ -64,7 +65,6 @@ class Player:
         self.is_moving = False
         self.recovery_timer = 0.0
 
-        # Multiplicadores de clima
         self.weather_speed_multiplier = 1.0
         self.weather_stamina_drain = 0.0
 
@@ -72,6 +72,201 @@ class Player:
         self.orders_cancelled = 0
         self.consecutive_on_time = 0
 
+        # ========== SISTEMA DE UNDO ==========
+        # usar deque para eficiencia en pop/append desde ambos lados
+        undo_config = config.get("undo", {})
+        self.max_undo_steps = int(undo_config.get("max_steps", 50))
+        self.undo_save_interval = float(undo_config.get("save_interval", 0.5))  # cada 0.5s
+
+        self.undo_stack: deque = deque(maxlen=self.max_undo_steps)
+        self.last_undo_save_time = 0.0
+        self.undo_cooldown = 0.3  # cooldown entre undos para evitar spam
+        self.last_undo_time = 0.0
+
+        # guardar estado inicial
+        self._save_undo_state()
+
+    def _save_undo_state(self):
+        """
+        guarda el estado actual del jugador en el stack de undo.
+        usa copia profunda para evitar referencias compartidas.
+        """
+        state = {
+            # posición y orientación
+            'x': float(self.x),
+            'y': float(self.y),
+            'angle': float(self.angle),
+
+            # stats
+            'stamina': float(self.stamina),
+            'reputation': float(self.reputation),
+            'earnings': float(self.earnings),
+            'total_weight': float(self.total_weight),
+
+            # contadores
+            'deliveries_completed': int(self.deliveries_completed),
+            'orders_cancelled': int(self.orders_cancelled),
+            'consecutive_on_time': int(self.consecutive_on_time),
+
+            # estado
+            'state': str(self.state),
+
+            # inventario (solo ids y status para no duplicar objetos pesados)
+            'inventory_snapshot': [
+                {
+                    'id': order.id,
+                    'status': order.status,
+                    'weight': order.weight,
+                    'pickup_pos': order.pickup_pos,
+                    'dropoff_pos': order.dropoff_pos,
+                    'payment': order.payment,
+                    'priority': order.priority,
+                    'deadline': order.deadline,
+                    'time_limit': order.time_limit
+                }
+                for order in self.inventory.orders
+            ],
+            'inventory_current_index': int(self.inventory.current_index),
+            'inventory_sort_mode': str(self.inventory.sort_mode),
+
+            # timestamp para debugging
+            'timestamp': datetime.now().isoformat()
+        }
+
+        self.undo_stack.append(state)
+
+    def should_save_undo_state(self, current_time: float) -> bool:
+        """
+        determina si debe guardarse un nuevo estado de undo.
+        criterios: tiempo transcurrido o cambio significativo.
+        """
+        return (current_time - self.last_undo_save_time) >= self.undo_save_interval
+
+    def save_undo_state_if_needed(self, current_time: float):
+        """
+        guarda estado si ha pasado suficiente tiempo desde el último guardado.
+        llamar esto desde el update loop del juego.
+        """
+        if self.should_save_undo_state(current_time):
+            self._save_undo_state()
+            self.last_undo_save_time = current_time
+
+    def can_undo(self, current_time: float) -> bool:
+        """
+        verifica si el jugador puede deshacer un paso.
+        """
+        # debe haber al menos 2 estados (actual + anterior)
+        if len(self.undo_stack) < 2:
+            return False
+
+        # verificar cooldown para evitar spam
+        if (current_time - self.last_undo_time) < self.undo_cooldown:
+            return False
+
+        return True
+
+    def undo(self, current_time: float) -> bool:
+        """
+        deshace el último movimiento y restaura el estado anterior.
+        retorna True si tuvo éxito, False si no hay estados que deshacer.
+        """
+        if not self.can_undo(current_time):
+            return False
+
+        try:
+            # remover estado actual (el más reciente)
+            self.undo_stack.pop()
+
+            # obtener estado anterior (sin removerlo todavía)
+            if not self.undo_stack:
+                return False
+
+            previous_state = self.undo_stack[-1]
+
+            # restaurar estado del jugador
+            self._restore_from_state(previous_state)
+
+            # actualizar timestamp de último undo
+            self.last_undo_time = current_time
+
+            return True
+
+        except Exception as e:
+            print(f"error al deshacer: {e}")
+            return False
+
+    def _restore_from_state(self, state: Dict[str, Any]):
+        """
+        restaura el jugador a un estado guardado previamente.
+        """
+        # posición y orientación
+        self.x = float(state['x'])
+        self.y = float(state['y'])
+        self.angle = float(state['angle'])
+
+        # stats
+        self.stamina = float(state['stamina'])
+        self.reputation = float(state['reputation'])
+        self.earnings = float(state['earnings'])
+        self.total_weight = float(state['total_weight'])
+
+        # contadores
+        self.deliveries_completed = int(state['deliveries_completed'])
+        self.orders_cancelled = int(state['orders_cancelled'])
+        self.consecutive_on_time = int(state['consecutive_on_time'])
+
+        # estado
+        self.state = state['state']
+
+        # restaurar inventario
+        self._restore_inventory(state)
+
+    def _restore_inventory(self, state: Dict[str, Any]):
+        """
+        restaura el inventario desde un snapshot guardado.
+        """
+        # limpiar inventario actual
+        self.inventory.orders.clear()
+
+        # recrear órdenes desde snapshot
+        for order_data in state['inventory_snapshot']:
+            # crear objeto Order desde datos guardados
+            order = Order(
+                order_id=order_data['id'],
+                pickup_pos=tuple(order_data['pickup_pos']),
+                dropoff_pos=tuple(order_data['dropoff_pos']),
+                payment=float(order_data['payment']),
+                time_limit=float(order_data.get('time_limit', 600.0)),
+                weight=float(order_data.get('weight', 1.0)),
+                priority=int(order_data.get('priority', 0)),
+                deadline=order_data.get('deadline', ''),
+                release_time=0
+            )
+            order.status = order_data['status']
+            self.inventory.orders.append(order)
+
+        # restaurar estado del inventario
+        self.inventory.current_index = int(state.get('inventory_current_index', 0))
+        self.inventory.sort_mode = state.get('inventory_sort_mode', 'priority')
+
+        # validar índice actual
+        if self.inventory.current_index >= len(self.inventory.orders):
+            self.inventory.current_index = max(0, len(self.inventory.orders) - 1)
+
+    def get_undo_stats(self) -> Dict[str, Any]:
+        """
+        obtiene estadísticas del sistema de undo para debugging/ui.
+        """
+        return {
+            'available_undos': len(self.undo_stack) - 1,  # -1 porque uno es el estado actual
+            'max_undos': self.max_undo_steps,
+            'can_undo': self.can_undo(datetime.now().timestamp()),
+            'last_undo_time': self.last_undo_time,
+            'oldest_state': self.undo_stack[0]['timestamp'] if self.undo_stack else None,
+            'newest_state': self.undo_stack[-1]['timestamp'] if self.undo_stack else None
+        }
+
+    # ========== FIN SISTEMA DE UNDO ==========
 
     def add_order_to_inventory(self, order: Order) -> bool:
         """agregar un pedido al inventario del player y actualiza el peso total"""
@@ -103,12 +298,10 @@ class Player:
         self.is_moving = False
 
     def move(self, dx: float, dy: float, delta_time: float, city_map):
-        # Evaluar estado antes de mover
         self._update_state()
         if self.state == PlayerState.EXHAUSTED:
             return
 
-        # v = v0 * Mclima * Mpeso * Mrep * Mresistencia * surface_weight(tile)
         effective_speed = self._calculate_effective_speed() * self._get_surface_weight(city_map)
 
         move_distance = effective_speed * delta_time
@@ -139,8 +332,6 @@ class Player:
         self.earnings += amount
 
     def update_reputation_for_delivery(self, order):
-
-        # Calcular si fue a tiempo, temprano o tarde
         if hasattr(order, 'deadline') and order.deadline:
             try:
                 if isinstance(order.deadline, str):
@@ -150,17 +341,13 @@ class Player:
 
                 now = datetime.now(deadline_dt.tzinfo) if deadline_dt.tzinfo else datetime.now()
                 time_diff = (deadline_dt - now).total_seconds()
+                time_margin = time_diff / order.time_limit if hasattr(order,
+                                                                      'time_limit') and order.time_limit > 0 else 0
 
-                # Calcular porcentaje de tiempo restante
-                time_margin = time_diff / order.time_limit if hasattr(order, 'time_limit') and order.time_limit > 0 else 0
-
-                # Entrega temprana (≥20% del tiempo antes)
                 if time_margin >= 0.20:
                     rep_change = self.rep_changes.get("delivery_early", 5)
-                # A tiempo
                 elif time_diff >= 0:
                     rep_change = self.rep_changes.get("delivery_on_time", 3)
-                # Tarde
                 else:
                     late_seconds = abs(time_diff)
                     if late_seconds <= self.delivery_thresholds.get("late_minor", 30):
@@ -170,21 +357,17 @@ class Player:
                     else:
                         rep_change = self.rep_changes.get("delivery_late_severe", -10)
 
-                    # Primera tardanza del día con reputación alta
                     if self.reputation >= self.rep_thresholds.get("bonus_first_late", 85):
                         rep_change *= self.payment_mods.get("first_late_penalty", 0.5)
             except Exception:
-                # Fallback: asumir entrega a tiempo
                 rep_change = self.rep_changes.get("delivery_on_time", 3)
         else:
-            # Sin deadline: asumir entrega a tiempo
             rep_change = self.rep_changes.get("delivery_on_time", 3)
 
         self.reputation = clamp(self.reputation + rep_change, 0, 100)
         self.deliveries_completed += 1
         self.consecutive_on_time += 1
 
-        # Bonus por racha
         streak_threshold = self.rep_changes.get("streak_threshold", 3)
         if self.consecutive_on_time >= streak_threshold:
             streak_bonus = self.rep_changes.get("streak_bonus", 2)
@@ -207,7 +390,6 @@ class Player:
         return math.cos(self.angle), math.sin(self.angle)
 
     def calculate_effective_speed(self, city_map=None) -> float:
-        # Pública: para HUD u otros, opcionalmente con `surface_weight`
         speed = self._calculate_effective_speed()
         if city_map is not None:
             speed *= self._get_surface_weight(city_map)
@@ -215,20 +397,15 @@ class Player:
 
     def _calculate_effective_speed(self) -> float:
         speed = self.base_speed
-
-        # Mclima
         speed *= self.weather_speed_multiplier
 
-        # Mpeso
         if self.total_weight > 3:
             weight_penalty = max(0.8, 1 - 0.03 * self.total_weight)
             speed *= weight_penalty
 
-        # Mrep
         if self.reputation >= self.rep_thresholds.get("excellent", 90):
             speed *= self.payment_mods.get("excellent_bonus", 1.03)
 
-        # Mresistencia
         if self.state == PlayerState.TIRED:
             speed *= 0.8
         elif self.state == PlayerState.EXHAUSTED:
@@ -237,7 +414,6 @@ class Player:
         return speed
 
     def _get_surface_weight(self, city_map) -> float:
-        # Lee el `surface_weight` desde la leyenda si existe; fallback: C=1.0, P=0.95
         try:
             tile = city_map.get_tile_at(int(self.x), int(self.y))
         except Exception:
@@ -271,7 +447,6 @@ class Player:
         self.stamina = clamp(self.stamina + recovery_rate * delta_time, 0, 100)
 
     def _update_state(self):
-        # Mantener EXHAUSTED hasta 30% de stamina
         if self.stamina <= 0:
             self.state = PlayerState.EXHAUSTED
         elif self.state == PlayerState.EXHAUSTED and self.stamina < 30.0:

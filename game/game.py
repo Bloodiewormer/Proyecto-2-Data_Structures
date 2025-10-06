@@ -803,9 +803,16 @@ class CourierGame(arcade.Window):
         if self.state_manager.current_state != GameState.PLAYING:
             return
 
+
+
         # --- A PARTIR DE AQUÍ SOLO SE EJECUTA SI state == PLAYING ---
 
         current_time = time.time()
+
+        if self.player:
+            self.player.save_undo_state_if_needed(current_time)
+
+
         if self.game_start_time > 0:
             if self.last_update_time == 0:
                 self.last_update_time = current_time
@@ -961,6 +968,31 @@ class CourierGame(arcade.Window):
                         else:
                             self.show_notification("Ventana de pedidos cerrada")
                 return  # Importante: return para evitar procesamiento adicional
+
+            elif symbol == arcade.key.Z:
+                if modifiers & arcade.key.MOD_CTRL:  # Ctrl+Z
+                    if self.player:
+                        current_time = time.time()
+                        if self.player.undo(current_time):
+                            undo_stats = self.player.get_undo_stats()
+                            remaining = undo_stats['available_undos']
+                            self.show_notification(f"paso deshecho ({remaining} disponibles)", 1.5)
+                        else:
+                            self.show_notification("no hay más pasos para deshacer", 1.5)
+
+                # tecla U alternativa (más fácil que Ctrl+Z)
+            elif symbol == arcade.key.U:
+                if self.player:
+                    current_time = time.time()
+                    if self.player.undo(current_time):
+                        undo_stats = self.player.get_undo_stats()
+                        remaining = undo_stats['available_undos']
+                        self.show_notification(f"⏪ paso deshecho ({remaining} restantes)", 1.5)
+                    else:
+                        if len(self.player.undo_stack) < 2:
+                            self.show_notification("no hay estados anteriores", 1.5)
+                        else:
+                            self.show_notification("espera antes de deshacer de nuevo", 1.0)
             # Navegación en ventana de pedidos (solo si está abierta)
             if self.orders_window and self.orders_window.is_open:
                 if symbol == arcade.key.UP:
@@ -976,6 +1008,7 @@ class CourierGame(arcade.Window):
                 elif symbol == arcade.key.C:  # Cancelar pedido
                     self.orders_window.cancel_order()
                     return
+
             # Debug keys para clima (solo si debug está activo)
             if self.debug:
                 if symbol == arcade.key.KEY_1 and self.weather_system:
@@ -1014,6 +1047,7 @@ class CourierGame(arcade.Window):
             if self.state_manager.settings_menu:
                 self.state_manager.settings_menu.handle_key_press(symbol, modifiers)
 
+
     def _toggle_inventory(self):
         """Alterna la visibilidad del inventario"""
         if self.player and hasattr(self.player, 'inventory'):
@@ -1022,6 +1056,7 @@ class CourierGame(arcade.Window):
                 self.show_notification("Inventario abierto")
             else:
                 self.show_notification("Inventario cerrado")
+
 
     def on_key_release(self, symbol: int, modifiers: int):
         if self.state_manager.current_state != GameState.PLAYING:

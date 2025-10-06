@@ -17,18 +17,22 @@
         "initial_reputation": 70,
         "initial_stamina": 100,
         "goal_earnings": 500,
-        "order_release_seconds": 60
+        "order_release_seconds": 10
     },
     "player": {
         "base_speed": 10,
         "move_speed": 10,
         "turn_speed": 1.5,
-        "max_inventory_weight": 10
+        "max_inventory_weight": 6
     },
     "rendering": {
         "fov": 1.047,
         "num_rays": 75,
         "floor_row_step": 2
+    },
+    "undo": {
+          "max_steps": 50,
+          "save_interval": 0.5
     },
     "reputation_changes": {
         "delivery_on_time": 3,
