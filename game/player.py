@@ -30,6 +30,9 @@ class Player:
         self.earnings = 0.0
         self.total_weight = 0.0
 
+        # Debug mode
+        self.debug = bool(config.get("debug", False))
+
         self.rep_changes = game_config.get("reputation_changes", {
             "delivery_on_time": 3,
             "delivery_early": 5,
@@ -73,45 +76,30 @@ class Player:
         self.consecutive_on_time = 0
 
         # ========== SISTEMA DE UNDO ==========
-        # usar deque para eficiencia en pop/append desde ambos lados
         undo_config = config.get("undo", {})
         self.max_undo_steps = int(undo_config.get("max_steps", 50))
-        self.undo_save_interval = float(undo_config.get("save_interval", 0.5))  # cada 0.5s
+        self.undo_save_interval = float(undo_config.get("save_interval", 0.5))
 
         self.undo_stack: deque = deque(maxlen=self.max_undo_steps)
         self.last_undo_save_time = 0.0
-        self.undo_cooldown = 0.3  # cooldown entre undos para evitar spam
+        self.undo_cooldown = 0.3
         self.last_undo_time = 0.0
 
-        # guardar estado inicial
         self._save_undo_state()
 
     def _save_undo_state(self):
-        """
-        guarda el estado actual del jugador en el stack de undo.
-        usa copia profunda para evitar referencias compartidas.
-        """
         state = {
-            # posición y orientación
             'x': float(self.x),
             'y': float(self.y),
             'angle': float(self.angle),
-
-            # stats
             'stamina': float(self.stamina),
             'reputation': float(self.reputation),
             'earnings': float(self.earnings),
             'total_weight': float(self.total_weight),
-
-            # contadores
             'deliveries_completed': int(self.deliveries_completed),
             'orders_cancelled': int(self.orders_cancelled),
             'consecutive_on_time': int(self.consecutive_on_time),
-
-            # estado
             'state': str(self.state),
-
-            # inventario (solo ids y status para no duplicar objetos pesados)
             'inventory_snapshot': [
                 {
                     'id': order.id,
@@ -122,71 +110,49 @@ class Player:
                     'payment': order.payment,
                     'priority': order.priority,
                     'deadline': order.deadline,
-                    'time_limit': order.time_limit
+                    'time_limit': order.time_limit,
+                    'picked_up_at': order.picked_up_at.isoformat() if order.picked_up_at else None
                 }
                 for order in self.inventory.orders
             ],
             'inventory_current_index': int(self.inventory.current_index),
             'inventory_sort_mode': str(self.inventory.sort_mode),
-
-            # timestamp para debugging
             'timestamp': datetime.now().isoformat()
         }
 
         self.undo_stack.append(state)
 
     def should_save_undo_state(self, current_time: float) -> bool:
-        """
-        determina si debe guardarse un nuevo estado de undo.
-        criterios: tiempo transcurrido o cambio significativo.
-        """
         return (current_time - self.last_undo_save_time) >= self.undo_save_interval
 
     def save_undo_state_if_needed(self, current_time: float):
-        """
-        guarda estado si ha pasado suficiente tiempo desde el último guardado.
-        llamar esto desde el update loop del juego.
-        """
         if self.should_save_undo_state(current_time):
             self._save_undo_state()
             self.last_undo_save_time = current_time
 
     def can_undo(self, current_time: float) -> bool:
-        """
-        verifica si el jugador puede deshacer un paso.
-        """
-        # debe haber al menos 2 estados (actual + anterior)
         if len(self.undo_stack) < 2:
             return False
 
-        # verificar cooldown para evitar spam
         if (current_time - self.last_undo_time) < self.undo_cooldown:
             return False
 
         return True
 
     def undo(self, current_time: float) -> bool:
-        """
-        deshace el último movimiento y restaura el estado anterior.
-        retorna True si tuvo éxito, False si no hay estados que deshacer.
-        """
         if not self.can_undo(current_time):
             return False
 
         try:
-            # remover estado actual (el más reciente)
             self.undo_stack.pop()
 
-            # obtener estado anterior (sin removerlo todavía)
             if not self.undo_stack:
                 return False
 
             previous_state = self.undo_stack[-1]
 
-            # restaurar estado del jugador
             self._restore_from_state(previous_state)
 
-            # actualizar timestamp de último undo
             self.last_undo_time = current_time
 
             return True
@@ -196,41 +162,24 @@ class Player:
             return False
 
     def _restore_from_state(self, state: Dict[str, Any]):
-        """
-        restaura el jugador a un estado guardado previamente.
-        """
-        # posición y orientación
         self.x = float(state['x'])
         self.y = float(state['y'])
         self.angle = float(state['angle'])
-
-        # stats
         self.stamina = float(state['stamina'])
         self.reputation = float(state['reputation'])
         self.earnings = float(state['earnings'])
         self.total_weight = float(state['total_weight'])
-
-        # contadores
         self.deliveries_completed = int(state['deliveries_completed'])
         self.orders_cancelled = int(state['orders_cancelled'])
         self.consecutive_on_time = int(state['consecutive_on_time'])
-
-        # estado
         self.state = state['state']
 
-        # restaurar inventario
         self._restore_inventory(state)
 
     def _restore_inventory(self, state: Dict[str, Any]):
-        """
-        restaura el inventario desde un snapshot guardado.
-        """
-        # limpiar inventario actual
         self.inventory.orders.clear()
 
-        # recrear órdenes desde snapshot
         for order_data in state['inventory_snapshot']:
-            # crear objeto Order desde datos guardados
             order = Order(
                 order_id=order_data['id'],
                 pickup_pos=tuple(order_data['pickup_pos']),
@@ -243,22 +192,21 @@ class Player:
                 release_time=0
             )
             order.status = order_data['status']
+
+            if order_data.get('picked_up_at'):
+                order.picked_up_at = datetime.fromisoformat(order_data['picked_up_at'])
+
             self.inventory.orders.append(order)
 
-        # restaurar estado del inventario
         self.inventory.current_index = int(state.get('inventory_current_index', 0))
         self.inventory.sort_mode = state.get('inventory_sort_mode', 'priority')
 
-        # validar índice actual
         if self.inventory.current_index >= len(self.inventory.orders):
             self.inventory.current_index = max(0, len(self.inventory.orders) - 1)
 
     def get_undo_stats(self) -> Dict[str, Any]:
-        """
-        obtiene estadísticas del sistema de undo para debugging/ui.
-        """
         return {
-            'available_undos': len(self.undo_stack) - 1,  # -1 porque uno es el estado actual
+            'available_undos': len(self.undo_stack) - 1,
             'max_undos': self.max_undo_steps,
             'can_undo': self.can_undo(datetime.now().timestamp()),
             'last_undo_time': self.last_undo_time,
@@ -266,24 +214,19 @@ class Player:
             'newest_state': self.undo_stack[-1]['timestamp'] if self.undo_stack else None
         }
 
-    # ========== FIN SISTEMA DE UNDO ==========
-
     def add_order_to_inventory(self, order: Order) -> bool:
-        """agregar un pedido al inventario del player y actualiza el peso total"""
         success = self.inventory.add_order(order)
         if success:
             self.set_inventory_weight(self.inventory.current_weight)
         return success
 
     def remove_order_from_inventory(self, order_id: str) -> Optional[Order]:
-        """quita un pedido del inventario y actualiza el peso total"""
         removed_order = self.inventory.remove_order(order_id)
         if removed_order:
             self.set_inventory_weight(self.inventory.current_weight)
         return removed_order
 
     def get_current_order(self) -> Optional[Order]:
-        """obtiene el pedido que se agarro actualmente"""
         return self.inventory.get_current_order()
 
     def update(self, delta_time: float):
@@ -332,46 +275,70 @@ class Player:
         self.earnings += amount
 
     def update_reputation_for_delivery(self, order):
-        if hasattr(order, 'deadline') and order.deadline:
-            try:
-                if isinstance(order.deadline, str):
-                    deadline_dt = datetime.fromisoformat(order.deadline.replace('Z', '+00:00'))
-                else:
-                    deadline_dt = order.deadline
-
-                now = datetime.now(deadline_dt.tzinfo) if deadline_dt.tzinfo else datetime.now()
-                time_diff = (deadline_dt - now).total_seconds()
-                time_margin = time_diff / order.time_limit if hasattr(order,
-                                                                      'time_limit') and order.time_limit > 0 else 0
-
-                if time_margin >= 0.20:
-                    rep_change = self.rep_changes.get("delivery_early", 5)
-                elif time_diff >= 0:
-                    rep_change = self.rep_changes.get("delivery_on_time", 3)
-                else:
-                    late_seconds = abs(time_diff)
-                    if late_seconds <= self.delivery_thresholds.get("late_minor", 30):
-                        rep_change = self.rep_changes.get("delivery_late_minor", -2)
-                    elif late_seconds <= self.delivery_thresholds.get("late_moderate", 120):
-                        rep_change = self.rep_changes.get("delivery_late_moderate", -5)
-                    else:
-                        rep_change = self.rep_changes.get("delivery_late_severe", -10)
-
-                    if self.reputation >= self.rep_thresholds.get("bonus_first_late", 85):
-                        rep_change *= self.payment_mods.get("first_late_penalty", 0.5)
-            except Exception:
-                rep_change = self.rep_changes.get("delivery_on_time", 3)
-        else:
+        if not hasattr(order, 'picked_up_at') or order.picked_up_at is None:
             rep_change = self.rep_changes.get("delivery_on_time", 3)
+            if self.debug:
+                print(f"Pedido {order.id} sin timestamp de recogida, usando rep neutral: +{rep_change}")
+        else:
+            now = datetime.now(order.picked_up_at.tzinfo) if order.picked_up_at.tzinfo else datetime.now()
+            time_elapsed = (now - order.picked_up_at).total_seconds()
 
+            time_limit = float(getattr(order, 'time_limit', 600.0))
+
+            time_remaining = time_limit - time_elapsed
+            time_margin = time_remaining / time_limit if time_limit > 0 else 0
+
+            if time_margin >= 0.20:
+                rep_change = self.rep_changes.get("delivery_early", 5)
+                status = "TEMPRANO"
+            elif time_remaining >= 0:
+                rep_change = self.rep_changes.get("delivery_on_time", 3)
+                status = "A TIEMPO"
+            else:
+                late_seconds = abs(time_remaining)
+                if late_seconds <= self.delivery_thresholds.get("late_minor", 30):
+                    rep_change = self.rep_changes.get("delivery_late_minor", -2)
+                    status = "TARDE (menor)"
+                elif late_seconds <= self.delivery_thresholds.get("late_moderate", 120):
+                    rep_change = self.rep_changes.get("delivery_late_moderate", -5)
+                    status = "TARDE (moderado)"
+                else:
+                    rep_change = self.rep_changes.get("delivery_late_severe", -10)
+                    status = "TARDE (severo)"
+
+                if self.reputation >= self.rep_thresholds.get("bonus_first_late", 85):
+                    original_change = rep_change
+                    rep_change *= self.payment_mods.get("first_late_penalty", 0.5)
+                    if self.debug:
+                        print(f"  Penalizacion reducida por alta reputacion: {original_change} -> {rep_change:.1f}")
+
+            if self.debug:
+                print(f"Entrega {order.id}:")
+                print(f"  Tiempo transcurrido: {time_elapsed:.1f}s / {time_limit:.1f}s")
+                print(f"  Margen: {time_margin * 100:.1f}% ({time_remaining:.1f}s)")
+                print(f"  Estado: {status}")
+                print(f"  Cambio de reputacion: {rep_change:+.1f}")
+
+        old_rep = self.reputation
         self.reputation = clamp(self.reputation + rep_change, 0, 100)
-        self.deliveries_completed += 1
-        self.consecutive_on_time += 1
+        if self.debug:
+            print(f"  Reputacion: {old_rep:.1f} -> {self.reputation:.1f}")
 
-        streak_threshold = self.rep_changes.get("streak_threshold", 3)
-        if self.consecutive_on_time >= streak_threshold:
-            streak_bonus = self.rep_changes.get("streak_bonus", 2)
-            self.reputation = clamp(self.reputation + streak_bonus, 0, 100)
+        self.deliveries_completed += 1
+
+        if rep_change > 0:
+            self.consecutive_on_time += 1
+
+            streak_threshold = self.rep_changes.get("streak_threshold", 3)
+            if self.consecutive_on_time >= streak_threshold:
+                streak_bonus = self.rep_changes.get("streak_bonus", 2)
+                self.reputation = clamp(self.reputation + streak_bonus, 0, 100)
+                if self.debug:
+                    print(f"  Bonus por racha! ({self.consecutive_on_time} entregas) +{streak_bonus}")
+                self.consecutive_on_time = 0
+        else:
+            if self.debug and self.consecutive_on_time > 0:
+                print(f"  Racha rota ({self.consecutive_on_time} entregas)")
             self.consecutive_on_time = 0
 
     def cancel_order(self):
