@@ -88,35 +88,24 @@ class Order:
         }
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> 'Order':
-        """Deserializar orden desde datos guardados"""
-        order = cls(
-            data["id"],
-            tuple(data["pickup_pos"]),
-            tuple(data["dropoff_pos"]),
-            data["payment"],
-            data["time_limit"],
-            weight=data.get("weight"),
-            priority=data.get("priority", 0),
-            deadline=data.get("deadline", ""),
-            release_time=data.get("release_time", 0)
-        )
-
-        order.status = data["status"]
-        order.created_at = datetime.fromisoformat(data["created_at"])
-        order.expires_at = datetime.fromisoformat(data["expires_at"])
-
-        if data.get("picked_up_at"):
-            order.picked_up_at = datetime.fromisoformat(data["picked_up_at"])
-        if data.get("delivered_at"):
-            order.delivered_at = datetime.fromisoformat(data["delivered_at"])
-
-        order.description = data.get("description", "Entrega urgente")
-        order.fragile = data.get("fragile", False)
-        order.accepted_at = data.get("accepted_at", -1.0)
-        order.time_remaining = data.get("time_remaining", -1.0)
-
-        return order
+    def from_dict(cls, data):
+        try:
+            return cls(
+                order_id=data["id"],
+                pickup_pos=tuple(data["pickup"]),
+                dropoff_pos=tuple(data["dropoff"]),
+                payment=data.get("payout", 0.0),
+                weight=data.get("weight", 0.0),
+                priority=data.get("priority", 0),
+                deadline=data.get("deadline", ""),
+                release_time=data.get("release_time", 0.0),
+                status=data.get("status", "pending"),
+                accepted_at=data.get("accepted_at", -1.0),
+                time_remaining=data.get("time_remaining", -1.0),
+            )
+        except KeyError as e:
+            print(f"Faltan datos clave al reconstruir el pedido: {data}. Error: {e}")
+            raise
 
     def is_expired(self) -> bool:
         """Verificar si la orden ha expirado"""

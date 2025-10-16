@@ -111,8 +111,9 @@ class InventoryPanel:
             )
             return
 
-        arcade.draw_text("ID", current_x + 250, current_y + height - 50, (255, 255, 0, alpha), 10)
-        arcade.draw_text("Prioridad", current_x + 275, current_y + height - 50, (255, 255, 0, alpha), 10)
+        # Encabezados de columnas con nuevos offsets
+        arcade.draw_text("ID", current_x + 240, current_y + height - 50, (255, 255, 0, alpha), 10)
+        arcade.draw_text("Prioridad", current_x + 300, current_y + height - 50, (255, 255, 0, alpha), 10)
         arcade.draw_text("Pago", current_x + 340, current_y + height - 50, (255, 255, 0, alpha), 10)
         arcade.draw_text("Peso", current_x + 380, current_y + height - 50, (255, 255, 0, alpha), 10)
         arcade.draw_text("Estado", current_x + 430, current_y + height - 50, (255, 255, 0, alpha), 10)
@@ -123,13 +124,10 @@ class InventoryPanel:
 
         for i, order in enumerate(self.inventory.orders[:max_display]):
             y_pos = start_y - (i * line_height)
-
-            arcade.draw_text(order.id[:8], current_x + 250, y_pos, (255, 255, 255, alpha), 10)
+            arcade.draw_text(order.id[:8], current_x + 240, y_pos, (255, 255, 255, alpha), 10)
             priority_color = (255, 200, 0, alpha) if order.priority > 0 else (255, 255, 255, alpha)
-            arcade.draw_text(str(order.priority), current_x + 290, y_pos, priority_color, 10)
+            arcade.draw_text(str(order.priority), current_x + 300, y_pos, priority_color, 10)
             arcade.draw_text(f"${order.payout:.0f}", current_x + 340, y_pos, (255, 255, 255, alpha), 10)
-
-            # Mostrar peso sólo si está picked_up
             weight_str = f"{order.weight:.1f} kg" if getattr(order, "status", "") == "picked_up" else ""
             arcade.draw_text(weight_str, current_x + 380, y_pos, (255, 255, 255, alpha), 10)
 

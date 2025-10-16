@@ -123,7 +123,7 @@ class MainMenu:
 
         # Opciones
         menu_start_y = panel_y + panel_height // 2 + 20
-        option_spacing = 60
+        option_spacing = 50  # Incrementa el espaciado para evitar solapamientos
         for i, option in enumerate(self.options):
             y_pos = menu_start_y - (i * option_spacing)
             is_selected = (i == self.selected_option)
