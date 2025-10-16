@@ -145,7 +145,8 @@ class InventoryPanel:
 
             arcade.draw_text(f"${order.payout:.0f}", current_x + 340, y_pos, (255, 255, 255, alpha), 10)
 
-            arcade.draw_text(f"{order.weight:.1f} kg", current_x + 380, y_pos, (255, 255, 255, alpha), 10)
+            weight_str = f"{order.weight:.1f} kg" if getattr(order, "status", "") == "picked_up" else ""
+            arcade.draw_text(weight_str, current_x + 380, y_pos, (255, 255, 255, alpha), 10)
 
             status_color = (0, 255, 0, alpha) if order.status == "in_progress" else (255, 255, 0, alpha)
             arcade.draw_text(order.status, current_x + 430, y_pos, status_color, 10)

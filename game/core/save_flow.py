@@ -1,4 +1,3 @@
-from typing import Optional
 from game.core.save_manager import SaveManager
 from game.core.gamestate import GameState
 from game.core.orders import Order
@@ -57,9 +56,30 @@ class SaveFlow:
             except Exception:
                 pass
 
+            # Guardar pedidos pendientes
+            pending_orders_payload = []
+            try:
+                if getattr(game, "orders_manager", None):
+                    for o in getattr(game.orders_manager, "pending_orders", []):
+                        pending_orders_payload.append({
+                            "id": str(o.id),
+                            "pickup": list(o.pickup_pos),
+                            "dropoff": list(o.dropoff_pos),
+                            "payout": float(getattr(o, "payout", getattr(o, "payment", 0.0))),
+                            "weight": float(getattr(o, "weight", 0.0)),
+                            "priority": int(getattr(o, "priority", 0)),
+                            "deadline": str(getattr(o, "deadline", "")),
+                            "time_limit": float(getattr(o, "time_limit", 0.0)),
+                            "status": "pending",
+                            "release_time": float(getattr(o, "release_time", 0.0)),
+                        })
+            except Exception:
+                pass
+
             orders_payload = dict(getattr(game, "orders_data", {}) or {})
             orders_payload["accepted_orders"] = accepted_orders_payload
             orders_payload["canceled_orders"] = canceled_ids
+            orders_payload["pending_orders"] = pending_orders_payload
 
             success = self.save_manager.save_game(
                 game.player, game.city, orders_payload, game.game_stats
@@ -117,10 +137,14 @@ class SaveFlow:
             try:
                 orders_blob = save_data.get("orders", {}) or {}
                 for it in orders_blob.get("accepted_orders", []):
+                    pickup_raw = it.get("pickup", (0, 0))
+                    dropoff_raw = it.get("dropoff", (0, 0))
+                    pickup_pos = tuple(int(x) for x in (pickup_raw[:2] if len(pickup_raw) >= 2 else list(pickup_raw) + [0]*(2-len(pickup_raw))))
+                    dropoff_pos = tuple(int(x) for x in (dropoff_raw[:2] if len(dropoff_raw) >= 2 else list(dropoff_raw) + [0]*(2-len(dropoff_raw))))
                     order = Order(
                         order_id=str(it.get("id")),
-                        pickup_pos=tuple(it.get("pickup", (0, 0))),
-                        dropoff_pos=tuple(it.get("dropoff", (0, 0))),
+                        pickup_pos=pickup_pos,
+                        dropoff_pos=dropoff_pos,
                         payment=float(it.get("payout", it.get("payment", 0.0))),
                         time_limit=float(it.get("time_limit", 0.0)),
                         weight=float(it.get("weight", 0.0)),
@@ -129,9 +153,21 @@ class SaveFlow:
                         release_time=0,
                     )
                     # Restaurar estado y timer del pedido
-                    setattr(order, "status", str(it.get("status", "in_progress")))
+                    status_str = it.get("status", None)
+                    picked_up_at_val = float(it.get("picked_up_at", -1.0))
+                    if status_str is None:
+                        # Si no se guardó explícitamente, inferir desde picked_up_at
+                        status_str = "picked_up" if picked_up_at_val >= 0 else "in_progress"
+                    setattr(order, "status", str(status_str))
                     setattr(order, "accepted_at", float(it.get("accepted_at", -1.0)))
                     setattr(order, "time_remaining", float(it.get("time_remaining", -1.0)))
+                    if picked_up_at_val >= 0:
+                        try:
+                            from datetime import datetime
+                            order.picked_up_at = datetime.fromtimestamp(picked_up_at_val)
+                        except Exception:
+                            order.picked_up_at = None
+                    # Agregar al inventario del jugador como ya haces:
                     if getattr(game.player, "add_order_to_inventory", None):
                         game.player.add_order_to_inventory(order)
                     elif getattr(game.player, "inventory", None):
@@ -144,20 +180,45 @@ class SaveFlow:
             canceled_ids = set(save_data.get("orders", {}).get("canceled_orders", []))
             skip_ids = accepted_ids | canceled_ids
 
-            # Re-armar pedidos disponibles (pendientes) sin duplicar ni reponer cancelados
-            if getattr(game, "orders_manager", None):
-                game.orders_manager.setup_orders(
-                    api_client=game.api_client,
-                    files_conf=game.files_conf,
-                    app_config=game.app_config,
-                    city=game.city,
-                    renderer=game.renderer,
-                    debug=getattr(game, "debug", False),
-                    skip_ids=skip_ids,
-                )
-                game.pending_orders = game.orders_manager.pending_orders
-                # Mantener registro de cancelados
-                game.orders_manager.canceled_orders |= canceled_ids
+            # Restaurar pedidos pendientes si existen en el save
+            orders_blob = save_data.get("orders", {}) or {}
+            pending_items = orders_blob.get("pending_orders", [])
+            if pending_items and getattr(game, "orders_manager", None):
+                game.orders_manager.pending_orders = []
+                for it in pending_items:
+                    pickup_raw = it.get("pickup", (0, 0))
+                    dropoff_raw = it.get("dropoff", (0, 0))
+                    pickup_pos = tuple(int(x) for x in (pickup_raw[:2] if len(pickup_raw) >= 2 else list(pickup_raw) + [0]*(2-len(pickup_raw))))
+                    dropoff_pos = tuple(int(x) for x in (dropoff_raw[:2] if len(dropoff_raw) >= 2 else list(dropoff_raw) + [0]*(2-len(dropoff_raw))))
+                    o = Order(
+                        order_id=str(it.get("id")),
+                        pickup_pos=pickup_pos,
+                        dropoff_pos=dropoff_pos,
+                        payment=float(it.get("payout", it.get("payment", 0.0))),
+                        time_limit=float(it.get("time_limit", 0.0)),
+                        weight=float(it.get("weight", 0.0)),
+                        priority=int(it.get("priority", 0)),
+                        deadline=str(it.get("deadline", "")),
+                        release_time=int(float(it.get("release_time", 0.0))),
+                    )
+                    o.status = "pending"
+                    game.orders_manager.pending_orders.append(o)
+                # IMPORTANTE: si restauras pending_orders, NO llames a setup_orders()
+            else:
+                # Fallback actual si no hay pending_orders en el save:
+                if getattr(game, "orders_manager", None):
+                    game.orders_manager.setup_orders(
+                        api_client=game.api_client,
+                        files_conf=game.files_conf,
+                        app_config=game.app_config,
+                        city=game.city,
+                        renderer=game.renderer,
+                        debug=getattr(game, "debug", False),
+                        skip_ids=skip_ids,
+                    )
+                    game.pending_orders = game.orders_manager.pending_orders
+                    # Mantener registro de cancelados
+                    game.orders_manager.canceled_orders |= canceled_ids
 
             # Estado y música
             game.state_manager.change_state(GameState.PLAYING)

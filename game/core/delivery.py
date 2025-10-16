@@ -30,6 +30,11 @@ class DeliverySystem:
                 if self._distance(player.x, player.y, px, py) <= radius:
                     order.pickup()
                     notify(f"Recogido {order.id}")
+                    # Actualizar peso del jugador para que afecte velocidad sólo con picked_up
+                    try:
+                        player.set_inventory_weight(player.inventory.current_weight)
+                    except Exception:
+                        pass
                     continue
 
             # Entrega
@@ -42,3 +47,8 @@ class DeliverySystem:
                     player.update_reputation_for_delivery(order)
                     player.remove_order_from_inventory(order.id)
                     notify(f"Entregado {order.id}  +${payout:.0f}")
+                    # Actualizar peso del jugador después de entregar
+                    try:
+                        player.set_inventory_weight(player.inventory.current_weight)
+                    except Exception:
+                        pass

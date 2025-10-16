@@ -263,7 +263,9 @@ class OrderManager:
         total_weight = 0.0
         for order_id in self.player_inventory:
             if order_id in self.orders:
-                total_weight += self.orders[order_id].weight
+                o = self.orders[order_id]
+                if getattr(o, "status", "") == "picked_up":
+                    total_weight += float(getattr(o, "weight", 0.0))
         return total_weight
 
     def to_dict(self) -> Dict[str, Any]:
