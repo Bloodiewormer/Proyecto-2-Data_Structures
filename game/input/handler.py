@@ -1,5 +1,6 @@
 import time
 import arcade
+from game.gamestate import GameState
 
 
 class InputHandler:
@@ -15,10 +16,8 @@ class InputHandler:
         state = game.state_manager.current_state
 
         # Solo manejamos teclas del juego activo aquí (ESC y menús quedan en game.py)
-        if state != game.state_manager.GameState.PLAYING if hasattr(game.state_manager, 'GameState') else (state.name != "PLAYING"):
-            if state == game.state_manager.GameState.PAUSED and game.game_over_active and game.score_screen:
-                # Deja que game.py rote a score/pause menus
-                return False
+        if state != GameState.PLAYING:
+            # Deja que game.py maneje MAIN_MENU, PAUSED, SETTINGS y pantallas de score/pausa
             return False
 
         # Si la ventana de pedidos está abierta, ciertas teclas se consumen por la UI de pedidos
@@ -137,7 +136,8 @@ class InputHandler:
 
     def on_key_release(self, symbol: int, modifiers: int) -> bool:
         game = self.game
-        if game.state_manager.current_state != game.state_manager.GameState.PLAYING:
+        # Solo liberaciones durante gameplay
+        if game.state_manager.current_state != GameState.PLAYING:
             return False
 
         if symbol in (arcade.key.W, arcade.key.UP):

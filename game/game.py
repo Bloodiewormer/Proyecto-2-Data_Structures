@@ -4,11 +4,7 @@ import time
 import arcade
 from typing import Optional
 import math
-import random
-import os
-import json
 
-from datetime import datetime, timezone
 from api.client import APIClient
 from game.city import CityMap
 from game.input.handler import InputHandler
@@ -21,7 +17,9 @@ from game.weather import WeatherSystem
 from game.gamestate import GameStateManager, GameState
 from game.SaveManager import SaveManager
 from game.audio import AudioManager
-from . import utils
+from game.core.timer import GameTimer
+from game.core.orders_manager import OrdersManager
+from game.core.delivery import DeliverySystem
 from .orders import Order
 from .ordersWindow import ordersWindow
 from game.score import ScoreManager, ScoreScreen
@@ -70,6 +68,9 @@ class CourierGame(arcade.Window):
         self.time_limit = game_config.get("time_limit_minutes", 15) * 60
         self.time_remaining = self.time_limit
 
+        # Timer central del juego
+        self.timer = GameTimer(time_limit_seconds=self.time_limit)
+
         self.pickup_radius = self.app_config.get("game", {}).get("pickup_radius", 1.5)
 
         self._move_forward = False
@@ -113,6 +114,10 @@ class CourierGame(arcade.Window):
         self._orders_queue: list[tuple[float, Order]] = []
         self.pending_orders: list[Order] = []
 
+        # Sistemas core
+        self.orders_manager = OrdersManager()
+        self.delivery_system = DeliverySystem()
+
     def setup(self):
 
         self.state_manager.change_state(GameState.MAIN_MENU)
@@ -123,12 +128,19 @@ class CourierGame(arcade.Window):
     def start_new_game(self):
         try:
             self._initialize_game_systems()
-            self._setup_orders()
-            self.game_start_time = time.time()
-            self.total_play_time = 0
+            # Reemplaza _setup_orders por OrdersManager
+            self.orders_manager.setup_orders(self.api_client, self.files_conf, self.app_config, self.city, self.renderer, self.debug)
+            self.pending_orders = self.orders_manager.pending_orders
+
+            # Timer centralizado
+            self.timer = GameTimer(time_limit_seconds=self.time_limit)
+            self.timer.start_new()
+            self.total_play_time = 0.0
             self.time_remaining = self.time_limit
+            self.last_update_time = 0
+
             self.game_stats = {
-                "start_time": self.game_start_time,
+                "start_time": time.time(),
                 "play_time": 0,
                 "level": 1
             }
@@ -166,10 +178,13 @@ class CourierGame(arcade.Window):
                 self.total_play_time = self.game_stats.get("play_time", 0)
                 self.time_remaining = self.game_stats.get("time_remaining", self.time_limit)
 
-            self._setup_orders()
+            # Restaurar timer centralizado
+            self.timer = GameTimer(time_limit_seconds=self.time_limit)
+            self.timer.restore(play_time=self.total_play_time, time_remaining=self.time_remaining)
 
-            self.game_start_time = time.time() - self.total_play_time
-            self.last_update_time = time.time()
+            # Reemplaza _setup_orders por OrdersManager
+            self.orders_manager.setup_orders(self.api_client, self.files_conf, self.app_config, self.city, self.renderer, self.debug)
+            self.pending_orders = self.orders_manager.pending_orders
 
             self.state_manager.change_state(GameState.PLAYING)
             self.show_notification("Partida cargada")
@@ -193,14 +208,9 @@ class CourierGame(arcade.Window):
             if not self.player or not self.city:
                 return False
 
-            current_time = time.time()
-            if self.game_start_time > 0 and self.last_update_time > 0:
-                frame_time = current_time - self.last_update_time
-                self.total_play_time += frame_time
-                self.last_update_time = current_time
-
-            self.game_stats["play_time"] = self.total_play_time
-            self.game_stats["time_remaining"] = self.time_remaining
+            # Sincroniza desde el timer
+            self.game_stats["play_time"] = self.timer.total_play_time
+            self.game_stats["time_remaining"] = self.timer.time_remaining
 
             success = self.save_manager.save_game(
                 self.player, self.city, self.orders_data, self.game_stats
@@ -279,207 +289,8 @@ class CourierGame(arcade.Window):
         self.orders_window = ordersWindow(self)
         if hasattr(self, 'width') and hasattr(self, 'height'):
             self.orders_window.ensure_initial_position(self.width, self.height)
-
-    def _setup_orders(self):
-        self.pending_orders = []
-        orders_list = []
-
-        try:
-            if self.debug:
-                print("Cargando pedidos desde API...")
-            data = self.api_client.get_orders() if self.api_client else None
-        except Exception as e:
-            if self.debug:
-                print(f"Error al cargar pedidos desde API: {e}")
-            data = None
-
-        if isinstance(data, dict) and isinstance(data.get("data"), list):
-            orders_list = data["data"]
-        elif isinstance(data, list):
-            orders_list = data
-
-        if not orders_list:
-            try:
-                backup_file = os.path.join(self.files_conf.get("data_directory", "data"), "pedidos.json")
-                if os.path.exists(backup_file):
-                    with open(backup_file, "r", encoding="utf-8") as f:
-                        local = json.load(f)
-
-                    if isinstance(local, dict):
-                        if isinstance(local.get("data"), list):
-                            orders_list = local["data"]
-                        elif isinstance(local.get("orders"), list):
-                            orders_list = local["orders"]
-                    elif isinstance(local, list):
-                        orders_list = local
-
-                    if orders_list and self.debug:
-                        print(f"Pedidos cargados desde backup: {backup_file} ({len(orders_list)})")
-            except Exception as e:
-                if self.debug:
-                    print(f"Error al cargar pedidos desde backup: {e}")
-
-        if self.debug:
-            print(f"Total de pedidos cargados: {len(orders_list)}")
-
-        def _parse_xy(v):
-            if isinstance(v, (list, tuple)) and len(v) == 2:
-                return int(v[0]), int(v[1])
-            return None
-
-        def _time_limit_from_deadline(deadline_str: str, default_sec: float = 600.0) -> float:
-            if not deadline_str:
-                return default_sec
-            try:
-                s = str(deadline_str)
-                if s.endswith("Z"):
-                    dt = datetime.fromisoformat(s.replace("Z", "+00:00"))
-                    now = datetime.now(timezone.utc)
-                else:
-                    dt = datetime.fromisoformat(s)
-                    now = datetime.now(dt.tzinfo) if dt.tzinfo else datetime.now()
-                return max(60.0, (dt - now).total_seconds())
-            except Exception:
-                return default_sec
-
-        def _in_bounds(x, y):
-            return 0 <= x < self.city.width and 0 <= y < self.city.height
-
-        def _is_street(x, y):
-            try:
-                return self.city.tiles[y][x] == "C"
-            except Exception:
-                return False
-
-        def _nearest_street_from(x0, y0, max_radius=64):
-            if not self.city:
-                return None
-            if _in_bounds(x0, y0) and _is_street(x0, y0):
-                return (x0, y0)
-
-            best = None
-            best_d2 = float("inf")
-            for r in range(1, max_radius + 1):
-                for dx in range(-r, r + 1):
-                    for dy in (-r, r):
-                        x, y = x0 + dx, y0 + dy
-                        if _in_bounds(x, y) and _is_street(x, y):
-                            d2 = (x - x0) * (x - x0) + (y - y0) * (y - y0)
-                            if d2 < best_d2:
-                                best, best_d2 = (x, y), d2
-                for dy in range(-r + 1, r):
-                    for dx in (-r, r):
-                        x, y = x0 + dx, y0 + dy
-                        if _in_bounds(x, y) and _is_street(x, y):
-                            d2 = (x - x0) * (x - x0) + (y - y0) * (y - y0)
-                            if d2 < best_d2:
-                                best, best_d2 = (x, y), d2
-                if best is not None:
-                    return best
-            return None
-
-        def _snap_to_accessible_or_force(pos):
-            if not self.city or not pos:
-                return None
-            px, py = pos
-
-            if _in_bounds(px, py) and _is_street(px, py):
-                nb = utils.find_nearest_building(self.city, px, py)
-                return (px, py), nb
-
-            nb = utils.find_nearest_building(self.city, px, py)
-            bx, by = nb if nb else (px, py)
-
-            for nx, ny in ((bx + 1, by), (bx - 1, by), (bx, by + 1), (bx, by - 1)):
-                if _in_bounds(nx, ny) and _is_street(nx, ny):
-                    return (nx, ny), nb
-
-            for nx in (bx - 1, bx, bx + 1):
-                for ny in (by - 1, by, by + 1):
-                    if (nx, ny) != (bx, by) and _in_bounds(nx, ny) and _is_street(nx, ny):
-                        return (nx, ny), nb
-
-            near_street = _nearest_street_from(bx, by, max_radius=96)
-            if near_street:
-                return near_street, nb
-
-            near_street = _nearest_street_from(px, py, max_radius=96)
-            if near_street:
-                nn_b = utils.find_nearest_building(self.city, near_street[0], near_street[1])
-                return near_street, nn_b
-
-            return None
-
-        orders_objs = []
-        for it in orders_list:
-            try:
-                oid = str(it.get("id") or f"ORD-{random.randint(1000, 9999)}")
-                pickup_raw = _parse_xy(it.get("pickup"))
-                dropoff_raw = _parse_xy(it.get("dropoff"))
-                if not pickup_raw or not dropoff_raw:
-                    if self.debug:
-                        print(f"Saltando pedido {oid}: pickup/dropoff inválidos")
-                    continue
-
-                snap_p = _snap_to_accessible_or_force(pickup_raw)
-                snap_d = _snap_to_accessible_or_force(dropoff_raw)
-
-                if not snap_p or not snap_d:
-                    if self.debug:
-                        print(f"Forzado fallido para {oid}: no hay calles en el mapa")
-                    continue
-
-                (pickup_pos, p_building) = snap_p
-                (dropoff_pos, d_building) = snap_d
-
-                payout = float(it.get("payout", it.get("payment", 0)))
-                deadline = str(it.get("deadline", ""))
-                time_limit = _time_limit_from_deadline(deadline, 600.0)
-
-                order = Order(
-                    order_id=oid,
-                    pickup_pos=pickup_pos,
-                    dropoff_pos=dropoff_pos,
-                    payment=payout,
-                    time_limit=time_limit,
-                    weight=it.get("weight"),
-                    priority=int(it.get("priority", 0)),
-                    deadline=deadline,
-                    release_time=int(it.get("release_time", 0)),
-                )
-                orders_objs.append(order)
-
-                if self.renderer and self.city:
-                    if p_building:
-                        pbx, pby = p_building
-                        if _in_bounds(pbx, pby) and self.city.tiles[pby][pbx] == "B":
-                            self.renderer.generate_door_at(pbx, pby)
-                    if d_building:
-                        dbx, dby = d_building
-                        if _in_bounds(dbx, dby) and self.city.tiles[dby][dbx] == "B":
-                            self.renderer.generate_door_at(dbx, dby)
-
-            except Exception as e:
-                if self.debug:
-                    print(f"Saltando pedido inválido: {e}")
-
-        self._orders_queue = []
-        self.pending_orders = []
-        elapsed = float(self.total_play_time) if self.total_play_time else 0.0
-
-        for i, order in enumerate(orders_objs):
-            unlock_at = i * float(self.order_release_interval)
-            if unlock_at <= elapsed:
-                self.pending_orders.append(order)
-            else:
-                self._orders_queue.append((unlock_at, order))
-
-        self._orders_queue.sort(key=lambda x: x[0])
-
-        if self.orders_window:
-            self.orders_window.set_pending_orders(self.pending_orders)
-        if self.debug:
-            print(f"{len(self.pending_orders)} active orders ready")
+        # Conectar ventana de pedidos al manager
+        self.orders_manager.attach_window(self.orders_window)
 
     def show_notification(self, message: str, duration: float = 2.0):
         # Delegate to NotificationManager
@@ -596,22 +407,19 @@ class CourierGame(arcade.Window):
         if self.state_manager.current_state != GameState.PLAYING:
             return
 
-        current_time = time.time()
+        # Avance de tiempo centralizado
+        self.timer.advance(delta_time)
+        self.total_play_time = self.timer.total_play_time
+        self.time_remaining = self.timer.time_remaining
 
+        # Guardar estados para undo
         if self.player:
-            self.player.save_undo_state_if_needed(current_time)
-
-        if self.game_start_time > 0:
-            if self.last_update_time == 0:
-                self.last_update_time = current_time
-            else:
-                frame_time = current_time - self.last_update_time
-                self.total_play_time += frame_time
-                self.time_remaining -= frame_time
-                self.last_update_time = current_time
+            self.player.save_undo_state_if_needed(time.time())
 
         self._check_game_end_conditions()
-        self._release_orders_by_time()
+        # Liberación de pedidos centralizada
+        self.orders_manager.release_orders(self.total_play_time, lambda msg: self.show_notification(msg))
+        self.pending_orders = self.orders_manager.pending_orders
 
         if self.player and hasattr(self.player, 'inventory'):
             self.player.inventory.update_animation(delta_time)
@@ -665,25 +473,11 @@ class CourierGame(arcade.Window):
             self.displayed_speed = 0.0
 
         self.player.update(delta_time)
-        self._check_pickup_and_delivery()
+        # Delegar pickup/entrega
+        self.delivery_system.process(self.player, getattr(self, "pickup_radius", 1.5), self.show_notification)
 
         if self.orders_window:
             self.orders_window.update_animation(delta_time)
-
-    def _release_orders_by_time(self):
-        if not hasattr(self, "_orders_queue"):
-            return
-        released = 0
-        elapsed = float(self.total_play_time)
-
-        while self._orders_queue and self._orders_queue[0][0] <= elapsed:
-            _, order = self._orders_queue.pop(0)
-            self.pending_orders.append(order)
-            released += 1
-            self.show_notification(f"Nuevo pedido disponible: {order.id}")
-
-        if released and self.orders_window:
-            self.orders_window.set_pending_orders(self.pending_orders)
 
     def on_key_press(self, symbol: int, modifiers: int):
         if symbol == arcade.key.ESCAPE:
@@ -726,42 +520,3 @@ class CourierGame(arcade.Window):
             return
         if self.input_handler.on_key_release(symbol, modifiers):
             return
-
-    def on_resize(self, width: int, height: int):
-        super().on_resize(width, height)
-        self.hud_fps.position = (10, height - 20)
-        self.hud_stats.position = (10, height - 40)
-        self.hud_performance.position = (10, height - 60)
-        self.hud_weather.position = (10, height - 100)
-        self.hud_time.position = (10, height - 120)
-
-    def _distance_player_to(self, tx: float, ty: float) -> float:
-        if not self.player:
-            return float('inf')
-        dx = self.player.x - tx
-        dy = self.player.y - ty
-        return math.hypot(dx, dy)
-    
-    def _check_pickup_and_delivery(self):
-        if not self.player or not getattr(self.player, "inventory", None):
-            return
-        inv = self.player.inventory
-        radius = getattr(self, "pickup_radius", 1.5)
-
-        for order in list(inv.orders):
-            if getattr(order, "status", "") == "in_progress":
-                px, py = order.pickup_pos
-                if self._distance_player_to(px, py) <= radius:
-                    order.pickup()
-                    self.show_notification(f"Recogido {order.id}")
-                    continue
-
-            if getattr(order, "status", "") == "picked_up":
-                dx, dy = order.dropoff_pos
-                if self._distance_player_to(dx, dy) <= radius:
-                    order.deliver()
-                    payout = float(getattr(order, "payout", getattr(order, "payment", 0.0)))
-                    self.player.add_earnings(payout)
-                    self.player.update_reputation_for_delivery(order)
-                    self.player.remove_order_from_inventory(order.id)
-                    self.show_notification(f"Entregado {order.id}  +${payout:.0f}")
