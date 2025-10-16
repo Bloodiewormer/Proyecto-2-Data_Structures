@@ -14,6 +14,10 @@ class OrderStatus:
 
 
 class Order:
+    # Campos de timer por pedido (se inician en aceptar)
+    accepted_at: float = -1.0
+    time_remaining: float = -1.0
+
     def __init__(self, order_id: str, pickup_pos: Tuple[int, int],
                  dropoff_pos: Tuple[int, int], payment: float,
                  time_limit: float = 600.0,
@@ -49,6 +53,9 @@ class Order:
         self.release_time = release_time
         self.payout = payment  # Alias para payment para compatibilidad
 
+        self.accepted_at = -1.0
+        self.time_remaining = -1.0
+
     @property
     def pickup_location(self):
         return list(self.pickup_pos)
@@ -75,7 +82,9 @@ class Order:
             "fragile": self.fragile,
             "priority": self.priority,
             "deadline": self.deadline,
-            "release_time": self.release_time
+            "release_time": self.release_time,
+            "accepted_at": self.accepted_at,
+            "time_remaining": self.time_remaining
         }
 
     @classmethod
@@ -104,6 +113,8 @@ class Order:
 
         order.description = data.get("description", "Entrega urgente")
         order.fragile = data.get("fragile", False)
+        order.accepted_at = data.get("accepted_at", -1.0)
+        order.time_remaining = data.get("time_remaining", -1.0)
 
         return order
 
@@ -132,6 +143,18 @@ class Order:
         """Cancelar orden"""
         if self.status in [OrderStatus.PENDING, OrderStatus.PICKED_UP]:
             self.status = OrderStatus.CANCELLED
+
+    def start_timer(self, current_play_time: float):
+        self.accepted_at = float(current_play_time)
+        self.time_remaining = float(getattr(self, "time_limit", 0.0))
+
+    def update_time_remaining(self, elapsed_since_accept: float):
+        if self.accepted_at < 0 or self.time_remaining < 0:
+            return
+        self.time_remaining = max(0.0, float(getattr(self, "time_limit", 0.0)) - elapsed_since_accept)
+
+    def is_expired(self) -> bool:
+        return self.accepted_at >= 0 and self.time_remaining == 0.0
 
 
 class OrderManager:

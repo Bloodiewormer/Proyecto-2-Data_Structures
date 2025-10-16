@@ -134,6 +134,8 @@ class CourierGame(arcade.Window):
         self.orders_manager = OrdersManager()
         self.delivery_system = DeliverySystem()
 
+        self._undo_timer_snapshots: list[tuple[float, float]] = []  # (total_play_time, time_remaining)
+
     def setup(self):
 
         self.state_manager.change_state(GameState.MAIN_MENU)
@@ -298,6 +300,17 @@ class CourierGame(arcade.Window):
             self._perf_accum_game = {"api": 0.0, "inventory": 0.0, "orders": 0.0, "weather": 0.0, "frames": 0}
             self._last_perf_report_game = now
 
+    def _record_timer_undo_snapshot(self):
+        self._undo_timer_snapshots.append((self.total_play_time, self.time_remaining))
+
+    def _restore_timer_undo(self):
+        if self._undo_timer_snapshots:
+            tp, tr = self._undo_timer_snapshots.pop()
+            self.total_play_time = tp
+            self.time_remaining = tr
+            if getattr(self, "timer", None):
+                self.timer.restore(play_time=tp, time_remaining=tr)
+
     def on_update(self, delta_time: float):
         # Actualización de notificaciones
         self.notifications.update(delta_time)
@@ -317,7 +330,11 @@ class CourierGame(arcade.Window):
 
         # Guardar estados para undo
         if self.player:
+            prev_len = len(getattr(self.player, "undo_stack", []))
             self.player.save_undo_state_if_needed(time.time())
+            new_len = len(getattr(self.player, "undo_stack", []))
+            if new_len > prev_len:
+                self._record_timer_undo_snapshot()
 
         # Reemplaza check local por reglas encapsuladas
         self.game_rules.check_and_handle(self)
@@ -363,6 +380,22 @@ class CourierGame(arcade.Window):
             self.renderer.debug = bool(self.debug)
         if getattr(self, "minimap", None) and hasattr(self.minimap, "set_debug"):
             self.minimap.set_debug(bool(self.debug))
+        # Actualizar timers de pedidos aceptados y expirar
+        try:
+            if self.player and getattr(self.player, "inventory", None):
+                for o in list(self.player.inventory.orders):
+                    if getattr(o, "accepted_at", -1.0) >= 0:
+                        elapsed = max(0.0, self.total_play_time - o.accepted_at)
+                        o.update_time_remaining(elapsed)
+                        if o.is_expired():
+                            # Penalización simple por expiración
+                            if hasattr(self.player, "cancel_order"):
+                                self.player.cancel_order()
+                            # Remover del inventario
+                            self.player.remove_order_from_inventory(o.id)
+                            self.show_notification(f"Pedido {o.id} expiró (-4 reputación)")
+        except Exception:
+            pass
 
     def on_key_press(self, symbol: int, modifiers: int):
         if symbol == arcade.key.ESCAPE:

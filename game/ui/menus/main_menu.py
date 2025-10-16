@@ -5,16 +5,14 @@ from game.core.gamestate import GameState
 class MainMenu:
     def __init__(self, game_instance):
         self.game = game_instance
+        self.options = ["Nuevo Juego", "Cargar Partida", "Configuración", "Información", "Salir"]
         self.selected_option = 0
-        self.options = ["Nuevo Juego", "Cargar Partida", "Configuración", "Salir"]
+        self.show_info = False
 
         # Verificar si existe una partida guardada
         self.has_saved_game = self._check_saved_game()
-
-        if not self.has_saved_game:
-            self.disabled_options = [1]
-        else:
-            self.disabled_options = []
+        self.disabled_options = []
+        self._refresh_save_available()
 
         self.background_texture = None
         self._load_background_image()
@@ -43,9 +41,56 @@ class MainMenu:
                 print(f"Error al cargar imagen de fondo: {e}")
             self.background_texture = None
 
+    def _refresh_save_available(self):
+        was = getattr(self, "has_saved_game", False)
+        self.has_saved_game = self._check_saved_game()
+        self.disabled_options = []
+        try:
+            load_idx = self.options.index("Cargar Partida")
+            if not self.has_saved_game:
+                self.disabled_options.append(load_idx)
+        except ValueError:
+            pass
+        # Si estamos en una opción deshabilitada, muévete
+        if self.selected_option in self.disabled_options:
+            self._move_selection(1)
+
+    def _move_selection(self, delta: int):
+        n = len(self.options)
+        if n == 0:
+            return
+        for _ in range(n):
+            self.selected_option = (self.selected_option + delta) % n
+            if self.selected_option not in getattr(self, "disabled_options", []):
+                break
+
     def draw(self):
+        self._refresh_save_available()
         width = self.game.width
         height = self.game.height
+
+        # Si show_info, dibuja overlay de información a pantalla completa
+        if self.show_info:
+            w, h = self.game.width, self.game.height
+            arcade.draw_lrbt_rectangle_filled(0, w, 0, h, (0, 0, 0, 200))
+            arcade.draw_text("Información", w // 2, h - 80, (255, 220, 180), 28, anchor_x="center", bold=True)
+            lines = [
+                "Controles:",
+                "  WASD/Flechas: Mover | ESC: Pausa/Menú | F5: Guardado rápido",
+                "  I: Inventario | O: Pedidos | U o CTRL+Z: Deshacer",
+                "",
+                "Desarrolladores:",
+                "  - David Alberto González Cordoba",
+                "  - Felipe Ugalde Vallejos",
+                "  - Brandon Brenes Umaña",
+                "",
+                "ENTER para volver"
+            ]
+            y = h - 140
+            for s in lines:
+                arcade.draw_text(s, w // 2, y, arcade.color.LIGHT_GRAY, 16, anchor_x="center")
+                y -= 28
+            return  # no dibujar el resto debajo del overlay
 
         # Fondo / imagen
         if self.background_texture:
@@ -111,6 +156,27 @@ class MainMenu:
         arcade.draw_lrbt_rectangle_filled(panel_x + 10, panel_x + panel_width - 10, instructions_y - 10, instructions_y + 20, (0, 0, 0, 100))
         arcade.draw_text("↑/↓ - Navegar    ENTER - Seleccionar    ESC - Salir", width // 2, instructions_y, (200, 220, 255), 16, anchor_x="center", bold=True)
 
+        # Overlay de información
+        if self.show_info:
+            w, h = self.game.width, self.game.height
+            arcade.draw_lrbt_rectangle_filled(0, w, 0, h, (0, 0, 0, 200))
+            arcade.draw_text("Información", w // 2, h - 80, (255, 220, 180), 28, anchor_x="center", bold=True)
+            lines = [
+                "Controles:",
+                "  WASD/Flechas: Mover | ESC: Pausa/Menú | F5: Guardado rápido",
+                "  I: Inventario | O: Pedidos | U o CTRL+Z: Deshacer",
+                "",
+                "Desarrolladores:",
+                "  - Tu Nombre 1",
+                "  - Tu Nombre 2",
+                "",
+                "ENTER/ESC para volver"
+            ]
+            y = h - 140
+            for s in lines:
+                arcade.draw_text(s, w // 2, y, arcade.color.LIGHT_GRAY, 16, anchor_x="center")
+                y -= 28
+
     def _get_save_info(self) -> str:
         try:
             from game.core.save_manager import SaveManager
@@ -125,27 +191,32 @@ class MainMenu:
         return "Disponible"
 
     def handle_key_press(self, symbol: int, modifiers: int):
+        if self.show_info:
+            # Cerrar info con Enter/Esc
+            if symbol in (arcade.key.ENTER, arcade.key.RETURN, arcade.key.ESCAPE):
+                self.show_info = False
+            return
         if symbol == arcade.key.UP:
-            self.selected_option = (self.selected_option - 1) % len(self.options)
+            self._move_selection(-1)
         elif symbol == arcade.key.DOWN:
-            self.selected_option = (self.selected_option + 1) % len(self.options)
+            self._move_selection(1)
         elif symbol == arcade.key.ENTER:
             self._execute_option()
         elif symbol == arcade.key.ESCAPE:
             arcade.exit()
 
     def _execute_option(self):
-
-
         if self.selected_option in getattr(self, "disabled_options", []):
             return
-
         option = self.options[self.selected_option]
         if option == "Nuevo Juego":
             self.game.start_new_game()
         elif option == "Cargar Partida":
             self.game.load_game()
         elif option == "Configuración":
+            from game.core.gamestate import GameState
             self.game.state_manager.change_state(GameState.SETTINGS)
+        elif option == "Información":
+            self.show_info = True
         elif option == "Salir":
             arcade.exit()

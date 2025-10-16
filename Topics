@@ -8,10 +8,15 @@ Sistema de caché
 Cadenas de Markov
 Interpolación lineal
 
-pero no se esta guardando el estado o si el pedido fue cancelado
-el desacer vuelve para atras todo menos el tiempo
-el peso de los pedidos tendria que aparece solamente cuando se agarra el pedido, no cuando se muestra in progress
-el tiempo deberia empezar a correr cuando el pedido es aceptado no apenas en pickup
-el apartado de info no cabe a la izquierda si quieres pon una opcion para la misma
-todavia no salta de opcion cuando no hay archivo de guardado el mismo lleva nombre savegame.sav
-vi metodos de performance que no se estan usando o estan repetidos
+
+
+
+
+
+
+despues de guardar y cargar los pedidos que ya estan en inventario no guardan el estado en el que se encuentran aparecen in progress apesar que al guardar estaban picked up al cargar la partida imendiantamente despues de cargar el proximo pedido estara disponible eso no deberia pasar pues cada pedido tiene su estado tiene su tiempo y peso
+el peso de los pedidos tendria que aparece solamente cuando se agarra el pedido, no cuando se muestra in progress algo hiciste para hacer esto pero el peso y la velocidad siguen afectando al personaje cuando el pedido esta in progress y el peso sigue apareciendo igual
+el tiempo despue de usar dacer si vuelve pero solo estas sumando el timpo pues presionando repetidamente el boton de desacer el tiempo sigue aumentando, no toma en cuenta los pasos que se dieron antes de desacer
+La nueva opcion de info esta bien pero al ponerla la opcion de salir se pone debajo de la informacionde loss controles y mensasjes de ayuda
+vi metodos de performance que no se estan usando o estan repetidos, eliminalos
+

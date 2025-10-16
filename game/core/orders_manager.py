@@ -2,6 +2,7 @@ import os
 import json
 import random
 from datetime import datetime, timezone
+from typing import Optional
 
 from game.core import utils
 from game.core.orders import Order
@@ -18,22 +19,26 @@ class OrdersManager:
         self._orders_window = None
         self.order_release_interval: float = 120.0
         self.debug: bool = False
+        self.canceled_orders: set[str] = set()  # <-- nuevo
 
     def attach_window(self, orders_window):
         self._orders_window = orders_window
         if self._orders_window:
             self._orders_window.set_pending_orders(self.pending_orders)
 
+    def mark_canceled(self, order_id: str):
+        self.canceled_orders.add(str(order_id))
+
     def setup_orders(self, api_client, files_conf: dict, app_config: dict, city, renderer, debug: bool = False, skip_ids: set[str] | None = None):
         """
         Carga pedidos de API o backup y prepara la cola de liberación.
         Genera puertas (renderer.generate_door_at) cuando corresponde.
         """
-        skip_ids = set(skip_ids or ())
         self.debug = bool(debug)
         self.order_release_interval = float(app_config.get("game", {}).get("order_release_seconds", 120))
         self.pending_orders = []
         self._orders_queue = []
+        skip_ids = set(skip_ids or ())
 
         # 1) cargar lista cruda
         orders_list = self._load_orders_list(api_client, files_conf)
@@ -129,6 +134,9 @@ class OrdersManager:
         for it in orders_list:
             try:
                 oid = str(it.get("id") or f"ORD-{random.randint(1000, 9999)}")
+                if oid in skip_ids or oid in self.canceled_orders:
+                    continue
+
                 pickup_raw = _parse_xy(it.get("pickup"))
                 dropoff_raw = _parse_xy(it.get("dropoff"))
                 if not pickup_raw or not dropoff_raw:
@@ -161,8 +169,6 @@ class OrdersManager:
                     deadline=deadline,
                     release_time=int(it.get("release_time", 0)),
                 )
-                if order.id in skip_ids:
-                    continue  # no poner en pendientes/cola, ya está en el inventario
                 orders_objs.append(order)
 
                 # Generar puertas si corresponde
@@ -183,10 +189,8 @@ class OrdersManager:
         # 4) preparar cola según tiempo jugado
         self.pending_orders = []
         self._orders_queue = []
-        elapsed = 0.0  # el reparto por tiempo se hace en release_orders()
+        elapsed = 0.0
         for i, order in enumerate(orders_objs):
-            if order.id in skip_ids:
-                continue
             unlock_at = i * float(self.order_release_interval)
             if unlock_at <= elapsed:
                 self.pending_orders.append(order)
@@ -200,12 +204,12 @@ class OrdersManager:
             print(f"{len(self.pending_orders)} active orders ready")
 
     def release_orders(self, total_play_time: float, notify):
-        """
-        Mueve de la cola a activos según el total_play_time. Llama notify(msg) por cada liberación.
-        """
         released = 0
         while self._orders_queue and self._orders_queue[0][0] <= float(total_play_time):
             _, order = self._orders_queue.pop(0)
+            # No reinsertar cancelados por seguridad
+            if order.id in self.canceled_orders:
+                continue
             self.pending_orders.append(order)
             released += 1
             notify(f"Nuevo pedido disponible: {order.id}")
@@ -215,7 +219,6 @@ class OrdersManager:
 
     # --------- helpers privados ---------
     def _load_orders_list(self, api_client, files_conf: dict):
-        # API primero
         data = None
         try:
             data = api_client.get_orders() if api_client else None
@@ -229,7 +232,6 @@ class OrdersManager:
         elif isinstance(data, list):
             orders_list = data
 
-        # Backup local si API vacío
         if not orders_list:
             try:
                 backup_file = os.path.join(files_conf.get("data_directory", "data"), "pedidos.json")

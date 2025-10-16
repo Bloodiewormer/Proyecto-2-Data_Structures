@@ -73,6 +73,12 @@ class ordersWindow:
 
         # Intentar agregar al inventario
         if self.game.player and self.game.player.add_order_to_inventory(order):
+            # Iniciar timer del pedido al aceptar
+            if self.game and hasattr(self.game, "total_play_time"):
+                try:
+                    order.start_timer(self.game.total_play_time)
+                except Exception:
+                    pass
             # Remover de pedidos pendientes
             self.pending_orders.pop(self.selected_order_index)
 
@@ -101,6 +107,9 @@ class ordersWindow:
 
         # Remover de pedidos pendientes
         self.pending_orders.pop(self.selected_order_index)
+        # Registrar cancelación para persistencia / omitir en reloads
+        if self.game and getattr(self.game, "orders_manager", None):
+            self.game.orders_manager.mark_canceled(order.id)
 
         # Ajustar índice si es necesario
         if self.selected_order_index >= len(self.pending_orders) and self.pending_orders:
@@ -211,7 +220,6 @@ class ordersWindow:
         details = [
             f"ID: {order.id}",
             f"Pago: ${order.payout:.0f}",
-            f"Peso: {order.weight:.1f} kg",
             f"Prioridad: {order.priority}",
             f"Recoger en: ({order.pickup_pos[0]}, {order.pickup_pos[1]})",
             f"Entregar en: ({order.dropoff_pos[0]}, {order.dropoff_pos[1]})",
@@ -219,13 +227,25 @@ class ordersWindow:
         ]
 
         for i, detail in enumerate(details):
+            y_pos = info_y - (i * line_height)
             arcade.draw_text(
                 detail,
                 current_x + 20,
-                info_y - (i * line_height),
+                y_pos,
                 (255, 255, 255, alpha),
                 14
             )
+            # Mostrar peso solo si status == "picked_up"
+            if i == 1:
+                show_weight = getattr(order, "status", "") == "picked_up"
+                if show_weight:
+                    arcade.draw_text(
+                        f"{order.weight:.1f} kg",
+                        current_x + 380,
+                        y_pos,
+                        (255, 255, 255, alpha),
+                        10
+                    )
 
         # Indicador de pedidos (ej: "1/3")
         orders_count = f"{self.selected_order_index + 1}/{len(self.pending_orders)}"

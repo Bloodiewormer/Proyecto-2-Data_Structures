@@ -1,5 +1,7 @@
+from typing import Optional
 from game.core.save_manager import SaveManager
 from game.core.gamestate import GameState
+from game.core.orders import Order
 
 
 class SaveFlow:
@@ -23,11 +25,10 @@ class SaveFlow:
                 game.game_stats["play_time"] = snapshot["play_time"]
                 game.game_stats["time_remaining"] = snapshot["time_remaining"]
             else:
-                # Compatibilidad si aún se usa total_play_time/time_remaining
                 game.game_stats["play_time"] = getattr(game, "total_play_time", 0.0)
                 game.game_stats["time_remaining"] = getattr(game, "time_remaining", 0.0)
 
-            # Construir lista de pedidos aceptados en inventario para guardar
+            # Guardar pedidos aceptados (estado completo) y cancelados
             accepted_orders_payload = []
             try:
                 if getattr(game, "player", None) and getattr(game.player, "inventory", None):
@@ -42,13 +43,23 @@ class SaveFlow:
                             "deadline": str(getattr(o, "deadline", "")),
                             "time_limit": float(getattr(o, "time_limit", 0.0)),
                             "status": str(getattr(o, "status", "")),
+                            # Timer del pedido (si ya corre)
+                            "accepted_at": float(getattr(o, "accepted_at", -1.0)),
+                            "time_remaining": float(getattr(o, "time_remaining", -1.0)),
                         })
             except Exception:
                 pass
 
-            # Mezcla en orders_data lo que ya tengas con accepted_orders (sin romper formatos previos)
+            canceled_ids = []
+            try:
+                if getattr(game, "orders_manager", None):
+                    canceled_ids = list(getattr(game.orders_manager, "canceled_orders", set()))
+            except Exception:
+                pass
+
             orders_payload = dict(getattr(game, "orders_data", {}) or {})
             orders_payload["accepted_orders"] = accepted_orders_payload
+            orders_payload["canceled_orders"] = canceled_ids
 
             success = self.save_manager.save_game(
                 game.player, game.city, orders_payload, game.game_stats
@@ -77,7 +88,7 @@ class SaveFlow:
                 game.show_notification("Error al cargar partida")
                 return False
 
-            # Inicializa sistemas (API/City/Player/Renderer/Weather/OrdersWindow)
+            # Inicializa sistemas
             game._initialize_game_systems()
 
             # Restaurar player/city
@@ -86,75 +97,67 @@ class SaveFlow:
             if "city" in save_data and getattr(game, "city", None):
                 self.save_manager.restore_city(game.city, save_data["city"])
 
-            # Restaurar pedidos "data" crudo si lo usas en SaveManager
+            # Restaurar pedidos crudos
             if "orders" in save_data:
                 game.orders_data = save_data["orders"]
 
-                # Reconstruir y reinsertar órdenes aceptadas en el inventario
-                from game.core.orders import Order
-                accepted_ids = set()
-                try:
-                    orders_blob = save_data.get("orders", {}) or {}
-                    for it in orders_blob.get("accepted_orders", []):
-                        order = Order(
-                            order_id=str(it.get("id")),
-                            pickup_pos=tuple(it.get("pickup", (0, 0))),
-                            dropoff_pos=tuple(it.get("dropoff", (0, 0))),
-                            payment=float(it.get("payout", it.get("payment", 0.0))),
-                            time_limit=float(it.get("time_limit", 0.0)),
-                            weight=float(it.get("weight", 0.0)),
-                            priority=int(it.get("priority", 0)),
-                            deadline=str(it.get("deadline", "")),
-                            release_time=0,
-                        )
-                        # Restaurar status exactamente como estaba
-                        setattr(order, "status", str(it.get("status", "in_progress")))
-                        if getattr(game.player, "add_order_to_inventory", None):
-                            game.player.add_order_to_inventory(order)
-                        elif getattr(game.player, "inventory", None):
-                            # fallback directo al modelo
-                            game.player.inventory.add_order(order)
-                        accepted_ids.add(order.id)
-                except Exception:
-                    pass
-
-            # Restaurar estadísticas y timer
+            # Estadísticas y timer
             if "game_stats" in save_data:
                 game.game_stats = save_data["game_stats"]
                 game.total_play_time = float(game.game_stats.get("play_time", 0.0))
                 game.time_remaining = float(game.game_stats.get("time_remaining", game.time_limit))
-
                 if getattr(game, "timer", None):
                     game.timer.restore(
                         play_time=game.total_play_time,
                         time_remaining=game.time_remaining
                     )
 
-            # Re-armar pedidos y puertas en el mapa
+            # Reconstruir pedidos aceptados al inventario y preparar skip_ids
+            accepted_ids = set()
+            try:
+                orders_blob = save_data.get("orders", {}) or {}
+                for it in orders_blob.get("accepted_orders", []):
+                    order = Order(
+                        order_id=str(it.get("id")),
+                        pickup_pos=tuple(it.get("pickup", (0, 0))),
+                        dropoff_pos=tuple(it.get("dropoff", (0, 0))),
+                        payment=float(it.get("payout", it.get("payment", 0.0))),
+                        time_limit=float(it.get("time_limit", 0.0)),
+                        weight=float(it.get("weight", 0.0)),
+                        priority=int(it.get("priority", 0)),
+                        deadline=str(it.get("deadline", "")),
+                        release_time=0,
+                    )
+                    # Restaurar estado y timer del pedido
+                    setattr(order, "status", str(it.get("status", "in_progress")))
+                    setattr(order, "accepted_at", float(it.get("accepted_at", -1.0)))
+                    setattr(order, "time_remaining", float(it.get("time_remaining", -1.0)))
+                    if getattr(game.player, "add_order_to_inventory", None):
+                        game.player.add_order_to_inventory(order)
+                    elif getattr(game.player, "inventory", None):
+                        game.player.inventory.add_order(order)
+                    accepted_ids.add(order.id)
+            except Exception:
+                pass
+
+            # Incluir cancelados para no re-listarlos
+            canceled_ids = set(save_data.get("orders", {}).get("canceled_orders", []))
+            skip_ids = accepted_ids | canceled_ids
+
+            # Re-armar pedidos disponibles (pendientes) sin duplicar ni reponer cancelados
             if getattr(game, "orders_manager", None):
-                # Intentar pasar skip_ids si el OrdersManager lo soporta
-                try:
-                    game.orders_manager.setup_orders(
-                        api_client=game.api_client,
-                        files_conf=game.files_conf,
-                        app_config=game.app_config,
-                        city=game.city,
-                        renderer=game.renderer,
-                        debug=getattr(game, "debug", False),
-                        skip_ids=locals().get("accepted_ids", set()),
-                    )
-                except TypeError:
-                    # Compatibilidad con firmas antiguas sin skip_ids
-                    game.orders_manager.setup_orders(
-                        api_client=game.api_client,
-                        files_conf=game.files_conf,
-                        app_config=game.app_config,
-                        city=game.city,
-                        renderer=game.renderer,
-                        debug=getattr(game, "debug", False),
-                    )
-                # Compatibilidad con game.pending_orders si el juego lo usa
+                game.orders_manager.setup_orders(
+                    api_client=game.api_client,
+                    files_conf=game.files_conf,
+                    app_config=game.app_config,
+                    city=game.city,
+                    renderer=game.renderer,
+                    debug=getattr(game, "debug", False),
+                    skip_ids=skip_ids,
+                )
                 game.pending_orders = game.orders_manager.pending_orders
+                # Mantener registro de cancelados
+                game.orders_manager.canceled_orders |= canceled_ids
 
             # Estado y música
             game.state_manager.change_state(GameState.PLAYING)
