@@ -91,6 +91,7 @@ class InventoryPanel:
             bold=True
         )
 
+        # Muestra el peso total efectivo (sólo picked_up)
         weight_text = f"Peso: {self.inventory.current_weight:.1f}/{self.inventory.max_weight:.1f} kg"
         arcade.draw_text(
             weight_text,
@@ -123,28 +124,12 @@ class InventoryPanel:
         for i, order in enumerate(self.inventory.orders[:max_display]):
             y_pos = start_y - (i * line_height)
 
-            if i == self.inventory.current_index:
-                arcade.draw_lbwh_rectangle_filled(
-                    current_x + width // 2,
-                    y_pos - 2,
-                    width - 20,
-                    16,
-                    (255, 0, 0, int(128 * self.animation_progress))
-                )
-
-            order_id_short = order.id[:8] + "..." if len(order.id) > 8 else order.id
-            arcade.draw_text(order_id_short, current_x + 230, y_pos, (255, 255, 255, alpha), 10)
-
-            priority_color = (0, 255, 0, alpha)
-            if order.priority >= 2:
-                priority_color = (255, 165, 0, alpha)
-            if order.priority >= 3:
-                priority_color = (255, 0, 0, alpha)
-
+            arcade.draw_text(order.id[:8], current_x + 250, y_pos, (255, 255, 255, alpha), 10)
+            priority_color = (255, 200, 0, alpha) if order.priority > 0 else (255, 255, 255, alpha)
             arcade.draw_text(str(order.priority), current_x + 290, y_pos, priority_color, 10)
-
             arcade.draw_text(f"${order.payout:.0f}", current_x + 340, y_pos, (255, 255, 255, alpha), 10)
 
+            # Mostrar peso sólo si está picked_up
             weight_str = f"{order.weight:.1f} kg" if getattr(order, "status", "") == "picked_up" else ""
             arcade.draw_text(weight_str, current_x + 380, y_pos, (255, 255, 255, alpha), 10)
 
@@ -155,16 +140,7 @@ class InventoryPanel:
             arcade.draw_text(
                 f"... y {len(self.inventory.orders) - max_display} más",
                 current_x + 20,
-                start_y - (max_display * line_height),
-                (255, 0, 0, alpha),
+                current_y + 20,
+                (200, 200, 200, alpha),
                 10
             )
-
-        sort_text = f"Orden: {self.inventory.sort_mode}"
-        arcade.draw_text(
-            sort_text,
-            current_x + 230,
-            current_y + 430,
-            (255, 0, 0, alpha),
-            10
-        )

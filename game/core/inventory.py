@@ -14,7 +14,9 @@ class Inventory:
 
     @property
     def current_weight(self) -> float:
-        return sum(order.weight for order in self.orders)
+        # SOLO cuenta el peso de pedidos recogidos
+        return sum(float(getattr(order, "weight", 0.0)) for order in self.orders
+                   if getattr(order, "status", "") == "picked_up")
 
     @property
     def can_add_more(self) -> bool:
@@ -22,7 +24,8 @@ class Inventory:
 
     def add_order(self, order: Order) -> bool:
         try:
-            if self.current_weight + order.weight <= self.max_weight:
+            # Nota: el peso de in_progress NO debe contar, current_weight ya filtra.
+            if self.current_weight + float(getattr(order, "weight", 0.0)) <= self.max_weight:
                 order.status = "in_progress"
                 self.orders.append(order)
                 self.sort_orders()

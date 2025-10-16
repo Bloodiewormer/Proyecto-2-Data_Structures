@@ -30,7 +30,6 @@ class DeliverySystem:
                 if self._distance(player.x, player.y, px, py) <= radius:
                     order.pickup()
                     notify(f"Recogido {order.id}")
-                    # Actualizar peso del jugador para que afecte velocidad sólo con picked_up
                     try:
                         player.set_inventory_weight(player.inventory.current_weight)
                     except Exception:
@@ -43,6 +42,10 @@ class DeliverySystem:
                 if self._distance(player.x, player.y, dx, dy) <= radius:
                     order.deliver()
                     payout = float(getattr(order, "payout", getattr(order, "payment", 0.0)))
+                    try:
+                        player.set_inventory_weight(player.inventory.current_weight)
+                    except Exception:
+                        pass
                     player.add_earnings(payout)
                     player.update_reputation_for_delivery(order)
                     player.remove_order_from_inventory(order.id)

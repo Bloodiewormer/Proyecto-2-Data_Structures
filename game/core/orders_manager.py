@@ -29,19 +29,16 @@ class OrdersManager:
     def mark_canceled(self, order_id: str):
         self.canceled_orders.add(str(order_id))
 
-    def setup_orders(self, api_client, files_conf: dict, app_config: dict, city, renderer, debug: bool = False, skip_ids: set[str] | None = None):
-        """
-        Carga pedidos de API o backup y prepara la cola de liberación.
-        Genera puertas (renderer.generate_door_at) cuando corresponde.
-        """
+    def setup_orders(self, api_client=None, files_conf=None, app_config=None,
+                     city=None, renderer=None, debug=False,
+                     skip_ids=None,
+                     current_play_time: float = 0.0):
         self.debug = bool(debug)
-        self.order_release_interval = float(app_config.get("game", {}).get("order_release_seconds", 120))
-        self.pending_orders = []
-        self._orders_queue = []
-        skip_ids = set(skip_ids or ())
+        self.order_release_interval = float(app_config.get("game", {}).get("order_release_seconds", 120)) if app_config else 120.0
+        skip_ids = set(skip_ids or [])
 
         # 1) cargar lista cruda
-        orders_list = self._load_orders_list(api_client, files_conf)
+        orders_list = self._load_orders_list(api_client, files_conf or {})
 
         if self.debug:
             print(f"Total de pedidos cargados: {len(orders_list)}")
@@ -189,7 +186,7 @@ class OrdersManager:
         # 4) preparar cola según tiempo jugado
         self.pending_orders = []
         self._orders_queue = []
-        elapsed = 0.0
+        elapsed = float(current_play_time)
         for i, order in enumerate(orders_objs):
             unlock_at = i * float(self.order_release_interval)
             if unlock_at <= elapsed:
@@ -251,3 +248,4 @@ class OrdersManager:
                 if self.debug:
                     print(f"Error al cargar pedidos desde backup: {e}")
         return orders_list
+
