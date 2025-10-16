@@ -1,7 +1,7 @@
-# python
 from game.core.save_manager import SaveManager
 from game.core.gamestate import GameState
 from game.core.orders import Order
+from game.core.utils import find_nearest_building
 from typing import Optional, Tuple
 
 
@@ -20,7 +20,7 @@ class SaveFlow:
             pending_orders_payload = [order.to_dict() for order in game.orders_manager.pending_orders]
             canceled_orders_payload = list(getattr(game.orders_manager, "canceled_orders", []))
 
-            # Persist timer to avoid game over on load
+            # persistir timer para evitar game over al cargar
             timer_payload = {
                 "total_play_time": float(getattr(game, "total_play_time", 0.0)),
                 "time_remaining": float(
@@ -54,7 +54,7 @@ class SaveFlow:
 
             game._initialize_game_systems()
 
-            # Restore core entities
+            # restaurar entidades base
             if "player" in save_data and getattr(game, "player", None):
                 self.save_manager.restore_player(game.player, save_data["player"])
             if "city" in save_data and getattr(game, "city", None):
@@ -65,12 +65,11 @@ class SaveFlow:
                 except Exception:
                     pass
 
-            # Restore timer first to avoid instant game over
+            # restaurar timer primero
             timer_blob = save_data.get("timer") or {}
             try:
                 tp = float(timer_blob.get("total_play_time", 0.0))
                 tr = float(timer_blob.get("time_remaining", float(getattr(game, "time_limit", 0.0))))
-                # Safety floor: if something bad was saved, clamp to time_limit
                 if tr <= 0 and getattr(game, "time_limit", 0.0) > 0:
                     tr = float(game.time_limit)
                 game.total_play_time = tp
@@ -78,20 +77,19 @@ class SaveFlow:
                 if getattr(game, "timer", None) and hasattr(game.timer, "restore"):
                     game.timer.restore(play_time=tp, time_remaining=tr)
             except Exception:
-                # Fallback: reset to full time
                 if getattr(game, "time_limit", 0.0) > 0:
                     game.total_play_time = 0.0
                     game.time_remaining = float(game.time_limit)
                     if getattr(game, "timer", None) and hasattr(game.timer, "restore"):
                         game.timer.restore(play_time=0.0, time_remaining=float(game.time_limit))
 
-            # Restore orders
+            # restaurar pedidos
             orders_blob = save_data.get("orders", {}) or {}
             accepted_orders = orders_blob.get("accepted_orders", [])
             pending_orders = orders_blob.get("pending_orders", [])
             canceled_ids = {str(i) for i in orders_blob.get("canceled_orders", [])}
 
-            # Accepted: append directly to avoid status/timer overrides
+            # accepted
             try:
                 game.player.inventory.orders = []
                 for it in accepted_orders:
@@ -103,7 +101,7 @@ class SaveFlow:
             except Exception:
                 pass
 
-            # Pending: skip canceled
+            # pending (omitir cancelados)
             try:
                 game.orders_manager.pending_orders = []
                 for it in pending_orders:
@@ -117,9 +115,10 @@ class SaveFlow:
             except Exception:
                 pass
 
-            # Rebuild doors near pickup/dropoff positions using adjacent building facade
+            # reconstruir puertas usando la misma regla que orders_manager:
+            # puerta en el tile de edificio "B" más cercano a pickup/dropoff
             try:
-                SaveFlow.rebuild_doors_for_orders(game)
+                self._rebuild_doors_for_orders(game)
             except Exception:
                 pass
 
@@ -135,103 +134,64 @@ class SaveFlow:
             return False
 
     @staticmethod
-    def _find_adjacent_building(tile_x: int, tile_y: int, city) -> Optional[Tuple[int, int]]:
-        """Return first adjacent 'B' building tile around (tile_x, tile_y); if none, nearest within small radius."""
-        if not city:
-            return None
-        w, h = int(city.width), int(city.height)
-        # Immediate 4-neighbors first
-        for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1)):
-            bx, by = tile_x + dx, tile_y + dy
-            if 0 <= bx < w and 0 <= by < h:
-                try:
-                    if city.tiles[by][bx] == "B":
-                        return bx, by
-                except Exception:
-                    pass
-        # Fallback: search a small radius for nearest building
-        best = None
-        best_dist = 999999
-        max_r = 4
-        for ry in range(max(tile_y - max_r, 0), min(tile_y + max_r + 1, h)):
-            for rx in range(max(tile_x - max_r, 0), min(tile_x + max_r + 1, w)):
-                try:
-                    if city.tiles[ry][rx] == "B":
-                        d = abs(rx - tile_x) + abs(ry - tile_y)
-                        if d < best_dist:
-                            best_dist = d
-                            best = (rx, ry)
-                except Exception:
-                    pass
-        return best
-
-    @staticmethod
-    def _ensure_door_near(pos: Tuple[int, int], renderer, city):
-        """Given a street or building pos, place a door on the building facade.
-        If pos is a building tile itself, use it directly; otherwise, find an adjacent building.
-        """
+    def _place_door_for_world_pos(pos: Tuple[int, int], renderer, city):
+        """elige el edificio más cercano con utils.find_nearest_building y genera la puerta ahí."""
         if not renderer or not city or not pos:
             return
         try:
             tx, ty = int(pos[0]), int(pos[1])
         except Exception:
             return
-        # If the pos itself is a building, place the door there
-        try:
-            if 0 <= tx < city.width and 0 <= ty < city.height and city.tiles[ty][tx] == "B":
-                renderer.generate_door_at(tx, ty)
-                return
-        except Exception:
-            pass
-        # Otherwise, find an adjacent building tile
-        building = SaveFlow._find_adjacent_building(tx, ty, city)
-        if building:
-            bx, by = building
-            renderer.generate_door_at(bx, by)
 
-    @staticmethod
-    def rebuild_doors_for_orders(game):
-        """
-        Rebuild doors for all known orders (pending, queued, inventory) using pickup/dropoff positions.
-        Call this after loading a save or after restoring orders from API/backup.
-        """
+        b = find_nearest_building(city, tx, ty)
+        if not b:
+            return
+
+        bx, by = int(b[0]), int(b[1])
+        if 0 <= bx < int(city.width) and 0 <= by < int(city.height):
+            try:
+                if city.tiles[by][bx] == "B":
+                    renderer.generate_door_at(bx, by)
+            except Exception:
+                pass
+
+    def _rebuild_doors_for_orders(self, game):
+        """regenera puertas para todos los pedidos conocidos (pending, en cola, inventario)."""
         renderer = getattr(game, "renderer", None)
         city = getattr(game, "city", None)
         if not renderer or not city:
             return
 
-        # Clear existing door markers safely
+        # limpiar marcadores actuales (los volveremos a crear desde los pedidos)
         try:
             if hasattr(renderer, "door_positions") and renderer.door_positions is not None:
                 renderer.door_positions.clear()
         except Exception:
             pass
 
-        seen_positions = set()
+        seen = set()
 
-        def add_from_order(order):
+        def add_for_order(order):
             for pos in (getattr(order, "pickup_pos", None), getattr(order, "dropoff_pos", None)):
                 if isinstance(pos, (list, tuple)) and len(pos) >= 2:
                     key = (int(pos[0]), int(pos[1]))
-                    if key not in seen_positions:
-                        seen_positions.add(key)
-                        SaveFlow._ensure_door_near(key, renderer, city)
+                    if key not in seen:
+                        seen.add(key)
+                        self._place_door_for_world_pos(key, renderer, city)
 
-        # Pending and queued orders (from orders manager)
         om = getattr(game, "orders_manager", None)
         if om:
             for o in getattr(om, "pending_orders", []) or []:
-                add_from_order(o)
+                add_for_order(o)
             for item in getattr(om, "_orders_queue", []) or []:
                 try:
                     _, o = item
-                    add_from_order(o)
+                    add_for_order(o)
                 except Exception:
                     pass
 
-        # Orders currently in player's inventory
         player = getattr(game, "player", None)
         inv = getattr(player, "inventory", None) if player else None
         if inv:
             for o in getattr(inv, "orders", []) or []:
-                add_from_order(o)
+                add_for_order(o)

@@ -328,13 +328,9 @@ class CourierGame(arcade.Window):
         self.total_play_time = self.timer.total_play_time
         self.time_remaining = self.timer.time_remaining
 
-        # Guardar estados para undo
+        # Guardar estados para undo (solo del jugador; sin snapshots del timer)
         if self.player:
-            prev_len = len(getattr(self.player, "undo_stack", []))
             self.player.save_undo_state_if_needed(time.time())
-            new_len = len(getattr(self.player, "undo_stack", []))
-            if new_len > prev_len:
-                self._record_timer_undo_snapshot()
 
         # Reemplaza check local por reglas encapsuladas
         self.game_rules.check_and_handle(self)

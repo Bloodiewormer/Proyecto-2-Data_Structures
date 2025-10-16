@@ -81,9 +81,7 @@ class InputHandler:
             if game.player:
                 current_time = time.time()
                 if game.player.undo(current_time):
-                    # restaurar timer del juego
-                    if hasattr(game, "_restore_timer_undo"):
-                        game._restore_timer_undo()
+
                     undo_stats = game.player.get_undo_stats()
                     remaining = undo_stats['available_undos']
                     game.show_notification(f"paso deshecho ({remaining} disponibles)", 1.5)
@@ -94,9 +92,7 @@ class InputHandler:
             if game.player:
                 current_time = time.time()
                 if game.player.undo(current_time):
-                    # restaurar timer del juego
-                    if hasattr(game, "_restore_timer_undo"):
-                        game._restore_timer_undo()
+
                     undo_stats = game.player.get_undo_stats()
                     remaining = undo_stats['available_undos']
                     game.show_notification(f" paso deshecho ({remaining} restantes)", 1.5)
