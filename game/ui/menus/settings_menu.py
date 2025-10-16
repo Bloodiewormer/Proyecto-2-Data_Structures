@@ -39,7 +39,8 @@ class SettingsMenu:
         # Cargar configuración actual
         self._load_current_settings()
 
-        print("SettingsMenu inicializado correctamente")
+        if getattr(self.game, "debug", False):
+            print(f"Menú de configuración inicializado. Resolución actual: {self.resolutions[self.current_resolution_index]}, Rayos: {self.ray_counts[self.current_ray_index]}, Volumen: {self.volume_levels[self.current_volume_index]}%, Debug: {self.debug_enabled}")
 
     def _load_current_settings(self):
         """Cargar configuración actual del juego"""

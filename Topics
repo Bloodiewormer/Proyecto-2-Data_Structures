@@ -8,4 +8,6 @@ Sistema de caché
 Cadenas de Markov
 Interpolación lineal
 
-
+al cargar la partida el player no tiene los pedidos que tenia antes de guardar
+agregar un apartado de información en el menú principal sobre los controles del juego y nombre de los desarrolladores
+si no guardados hacer que no se pueda estar en la opción de cargar partida en el menú principal

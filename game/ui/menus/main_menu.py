@@ -32,12 +32,15 @@ class MainMenu:
             bg_path = Path("assets/images/menu_background.png")
             if bg_path.exists():
                 self.background_texture = arcade.load_texture(str(bg_path))
-                print(f"Imagen de fondo cargada: {bg_path}")
+                if getattr(self.game, "debug", False):
+                    print(f"Imagen de fondo cargada: {bg_path}")
             else:
-                print(f"Imagen de fondo no encontrada en: {bg_path}")
-                print("Usando fondo por defecto")
+                if getattr(self.game, "debug", False):
+                    print(f"Imagen de fondo no encontrada en: {bg_path}")
+                    print("Usando fondo por defecto")
         except Exception as e:
-            print(f"Error al cargar imagen de fondo: {e}")
+            if getattr(self.game, "debug", False):
+                print(f"Error al cargar imagen de fondo: {e}")
             self.background_texture = None
 
     def draw(self):

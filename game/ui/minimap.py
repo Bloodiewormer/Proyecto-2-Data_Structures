@@ -1,5 +1,6 @@
 import math
 import arcade
+import time
 from typing import Optional
 from game.core.city import CityMap
 
@@ -19,6 +20,14 @@ class MinimapRenderer:
 
         self._minimap_shapes: Optional[arcade.ShapeElementList] = None
         self._minimap_cache_key = None
+
+        # Debug/perf
+        self.debug = bool(app_config.get("debug", False))
+        self._perf_accum = {"render": 0.0, "frames": 0}
+        self._last_perf_report = time.perf_counter()
+
+    def set_debug(self, flag: bool):
+        self.debug = bool(flag)
 
     def _ensure_minimap_cache(self, x: int, y: int, size: int):
         key = (self.city.width, self.city.height, id(self.city.tiles), size)
@@ -54,9 +63,8 @@ class MinimapRenderer:
         self._minimap_cache_key = key
 
     def render(self, x: int, y: int, size: int, player):
-        """
-        Dibuja el minimapa con marcadores de pedidos y el jugador.
-        """
+        t0 = time.perf_counter()
+
         self._ensure_minimap_cache(x, y, size)
         if not self._minimap_shapes:
             return
@@ -92,3 +100,14 @@ class MinimapRenderer:
         fx = math.cos(player.angle)
         fy = math.sin(player.angle)
         arcade.draw_line(px, py, px + fx * 10, py + fy * 10, self.col_player, 2)
+
+        t1 = time.perf_counter()
+        self._perf_accum["render"] += (t1 - t0)
+        self._perf_accum["frames"] += 1
+        now = time.perf_counter()
+        if self.debug and now - self._last_perf_report > 2.0:
+            f = max(1, self._perf_accum["frames"])
+            render_ms = (self._perf_accum["render"] / f) * 1000
+            print(f"[MinimapPerf] render={render_ms:.2f}ms")
+            self._perf_accum = {"render": 0.0, "frames": 0}
+            self._last_perf_report = now

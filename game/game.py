@@ -228,6 +228,14 @@ class CourierGame(arcade.Window):
         # Conectar ventana de pedidos al manager
         self.orders_manager.attach_window(self.orders_window)
 
+        self.renderer = RayCastRenderer(self.city, self.app_config)
+        if hasattr(self.renderer, "debug"):
+            self.renderer.debug = bool(self.app_config.get("debug", False))
+
+        self.minimap = MinimapRenderer(self.city, self.app_config)
+        if hasattr(self.minimap, "set_debug"):
+            self.minimap.set_debug(bool(self.app_config.get("debug", False)))
+
     def show_notification(self, message: str, duration: float = 2.0):
         # Delegate to NotificationManager
         self.notifications.show(message, duration)
@@ -340,8 +348,12 @@ class CourierGame(arcade.Window):
             self._turn_left, self._turn_right
         )
 
+
         # Actualización del jugador (estados internos)
         self.player.update(delta_time)
+
+        # Procesar recolección y entrega según la posición actual
+        self.delivery_system.process(self.player, getattr(self, "pickup_radius", 1.5), self.show_notification)
 
         if self.orders_window:
             self.orders_window.update_animation(delta_time)
@@ -386,3 +398,17 @@ class CourierGame(arcade.Window):
             return
         if self.input_handler.on_key_release(symbol, modifiers):
             return
+
+    def pause_game(self):
+        if self.state_manager.current_state == GameState.PLAYING:
+            self.state_manager.change_state(GameState.PAUSED)
+            if getattr(self, "audio_manager", None):
+                self.audio_manager.pause_music()
+            self.show_notification("Pausa")
+
+    def resume_game(self):
+        if self.state_manager.current_state == GameState.PAUSED:
+            self.state_manager.change_state(GameState.PLAYING)
+            if getattr(self, "audio_manager", None):
+                self.audio_manager.resume_music()
+            self.show_notification("Reanudar")

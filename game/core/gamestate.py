@@ -21,7 +21,8 @@ class GameStateManager:
         self.settings_menu = None
 
     def change_state(self, new_state: GameState):
-        print(f"Cambiando estado: {self.current_state.value} -> {new_state.value}")
+        if getattr(self.game, "debug", False):
+            print(f"Cambiando estado: {self.current_state.value} -> {new_state.value}")
 
         self.previous_state = self.current_state
         self.current_state = new_state
@@ -42,7 +43,9 @@ class GameStateManager:
         if not self.settings_menu:
             from game.ui.menus.settings_menu import SettingsMenu
             self.settings_menu = SettingsMenu(self.game)
-        print("Menú de settings inicializado")
+        if getattr(self.game, "debug", False):
+            print("Menú de configuración inicializado")
+
 
     def _show_main_menu(self):
         #Lazy Import  para evitar ciclo de imports

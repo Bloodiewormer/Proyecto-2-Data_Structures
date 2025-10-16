@@ -18,6 +18,13 @@ class HUDRenderer:
 
     # --------- Public ---------
     def draw(self, game):
+        if getattr(game, "debug", False):
+            dt_list = game.frame_times[-60:] if hasattr(game, "frame_times") else []
+            avg_dt = (sum(dt_list) / len(dt_list)) if dt_list else 0.0
+            avg_fps = (1.0 / avg_dt) if avg_dt > 0 else 0.0
+            rays = getattr(game.renderer, "num_rays", 0)
+            arcade.draw_text(f"FPS: {avg_fps:.1f} | Rays: {rays}", 10, game.height - 20, arcade.color.YELLOW, 12)
+
         self._last_game = game
         self.ensure_inventory_panel(game)
         # Inventario (panel) en esquina superior derecha
