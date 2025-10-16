@@ -1,6 +1,6 @@
 from game.core.score_manager import ScoreManager
 from game.ui.score_screen import ScoreScreen
-from game.gamestate import GameState
+from game.core.gamestate import GameState
 
 class ScoreFlow:
     """

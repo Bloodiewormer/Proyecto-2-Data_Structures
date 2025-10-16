@@ -1,5 +1,5 @@
 import arcade
-from game.gamestate import GameState
+from game.core.gamestate import GameState
 
 class PauseMenu:
     """Menú de pausa durante el juego"""

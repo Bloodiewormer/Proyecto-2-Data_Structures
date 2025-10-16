@@ -11,7 +11,7 @@ from game.rendering.world_renderer import RayCastRenderer
 from game.ui.minimap import MinimapRenderer
 from game.ui.notifications import NotificationManager
 from game.core.weather import WeatherSystem
-from game.gamestate import GameStateManager, GameState
+from game.core.gamestate import GameStateManager, GameState
 from game.core.save_manager import SaveManager
 from game.core.audio import AudioManager
 from game.core.timer import GameTimer

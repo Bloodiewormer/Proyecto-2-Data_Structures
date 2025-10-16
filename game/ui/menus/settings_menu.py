@@ -271,7 +271,7 @@ class SettingsMenu:
 
     def _return_to_previous_menu(self):
         """Volver al menú anterior"""
-        from game.gamestate import GameState
+        from game.core.gamestate import GameState
 
         if self.game.state_manager.previous_state in (GameState.PAUSED, GameState.PLAYING):
             self.game.state_manager.change_state(GameState.PAUSED)

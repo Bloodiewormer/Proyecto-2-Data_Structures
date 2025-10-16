@@ -1,6 +1,6 @@
 import arcade
 from pathlib import Path
-from game.gamestate import GameState
+from game.core.gamestate import GameState
 
 class MainMenu:
     def __init__(self, game_instance):

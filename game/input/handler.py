@@ -1,6 +1,6 @@
 import time
 import arcade
-from game.gamestate import GameState
+from game.core.gamestate import GameState
 
 
 class InputHandler:

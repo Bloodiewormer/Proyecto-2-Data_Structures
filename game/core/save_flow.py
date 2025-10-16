@@ -1,5 +1,5 @@
 from game.core.save_manager import SaveManager
-from game.gamestate import GameState
+from game.core.gamestate import GameState
 
 
 class SaveFlow:

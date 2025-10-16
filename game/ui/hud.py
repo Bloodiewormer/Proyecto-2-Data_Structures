@@ -13,11 +13,14 @@ class HUDRenderer:
     def __init__(self, app_config: dict, debug: bool = False):
         self.app_config = app_config
         self.debug = bool(debug)
+        self._inv_panel = None
+        self._last_game = None
 
     # --------- Public ---------
     def draw(self, game):
-        # Inventario (panel) en esquina superior derecha
+        self._last_game = game
         self.ensure_inventory_panel(game)
+        # Inventario (panel) en esquina superior derecha
         if self._inv_panel:
             inventory_width = 450
             inventory_height = 400
@@ -367,12 +370,23 @@ class HUDRenderer:
             arcade.draw_circle_filled(icx + 18, icy - 12, 3, arcade.color.WHITE)
 
     def ensure_inventory_panel(self, game):
-        if game.player and getattr(game.player, "inventory", None):
-            if self._inv_panel is None or self._inv_panel.inventory is not game.player.inventory:
-                self._inv_panel = InventoryPanel(game.player.inventory)
+        """
+        Asegura que el panel del inventario exista y apunte al inventario actual del jugador.
+        """
+        if not game or not getattr(game, "player", None) or not getattr(game.player, "inventory", None):
+            return
+        if self._inv_panel is None or self._inv_panel.inventory is not game.player.inventory:
+            self._inv_panel = InventoryPanel(game.player.inventory)
 
-    def toggle_inventory(self):
-        self.ensure_inventory_panel(self.game if hasattr(self, 'game') else None)
+    def toggle_inventory(self, game=None):
+        """
+        Alterna el panel de inventario. Si se pasa game, se usa para inicializar el panel al vuelo.
+        """
+        if game is not None:
+            self._last_game = game
+            self.ensure_inventory_panel(game)
+        elif self._inv_panel is None and self._last_game is not None:
+            self.ensure_inventory_panel(self._last_game)
         if self._inv_panel:
             self._inv_panel.toggle()
 
@@ -380,5 +394,11 @@ class HUDRenderer:
         return bool(self._inv_panel and self._inv_panel.is_open)
 
     def update(self, delta_time: float, game):
+        """
+        Actualiza animaciones de UI (incluye inventario).
+        """
+        self._last_game = game
+        if self._inv_panel is None:
+            self.ensure_inventory_panel(game)
         if self._inv_panel:
             self._inv_panel.update(delta_time)
