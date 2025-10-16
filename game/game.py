@@ -3,7 +3,6 @@ import traceback
 import time
 import arcade
 from typing import Optional
-import math
 
 from api.client import APIClient
 from game.city import CityMap
@@ -20,6 +19,8 @@ from game.audio import AudioManager
 from game.core.timer import GameTimer
 from game.core.orders_manager import OrdersManager
 from game.core.delivery import DeliverySystem
+from game.core.player_controller import PlayerController
+from game.core.game_rules import GameRules, GameRulesConfig
 from .orders import Order
 from .ordersWindow import ordersWindow
 from game.score import ScoreManager, ScoreScreen
@@ -80,6 +81,16 @@ class CourierGame(arcade.Window):
 
         self.displayed_speed = 0.0
         self.speed_smoothing = 3.0
+
+        # Instancias core adicionales: controlador de jugador y reglas de juego
+        self.player_controller = PlayerController(
+            backward_factor=self.backward_factor,
+            speed_smoothing=self.speed_smoothing
+        )
+        self.game_rules = GameRules(lambda: GameRulesConfig(
+            goal_earnings=float(self.app_config.get("game", {}).get("goal_earnings", 500)),
+            time_limit=float(self.time_limit),
+        ))
 
         self.orders_data = {}
         self.game_stats = {}
@@ -304,25 +315,6 @@ class CourierGame(arcade.Window):
             print(
                 f"[GamePerf] (setup) api={api_ms:.2f}ms inventory={inv_ms:.2f}ms orders={orders_ms:.2f}ms weather={weather_ms:.2f}ms")
 
-    def _check_game_end_conditions(self):
-        if not self.player:
-            return
-
-        if self.time_remaining <= 0:
-            self._end_game(False, "¡Tiempo agotado!")
-            return
-
-        if self.player.is_reputation_critical():
-            self._end_game(False, "¡Reputación muy baja!")
-            return
-
-        goal_earnings = float(self.app_config.get("game", {}).get("goal_earnings", 500))
-        if self.player.earnings >= goal_earnings:
-            time_bonus = max(0.0, self.time_remaining / self.time_limit)
-            bonus_message = f"¡Victoria! Bonus de tiempo: +{time_bonus * 100:.0f}%"
-            self._end_game(True, bonus_message)
-            return
-
     def _end_game(self, victory: bool, message: str):
         self.show_notification(f" {message}")
 
@@ -416,7 +408,8 @@ class CourierGame(arcade.Window):
         if self.player:
             self.player.save_undo_state_if_needed(time.time())
 
-        self._check_game_end_conditions()
+        # Reemplaza check local por reglas encapsuladas
+        self.game_rules.check_and_handle(self)
         # Liberación de pedidos centralizada
         self.orders_manager.release_orders(self.total_play_time, lambda msg: self.show_notification(msg))
         self.pending_orders = self.orders_manager.pending_orders
@@ -437,44 +430,15 @@ class CourierGame(arcade.Window):
         if not self.player or not self.city:
             return
 
-        if self._turn_left:
-            self.player.turn_left(delta_time)
-        if self._turn_right:
-            self.player.turn_right(delta_time)
+        # Movimiento y velocidad mostrada delegados
+        self.displayed_speed = self.player_controller.update(
+            self.player, self.city, delta_time,
+            self._move_forward, self._move_backward,
+            self._turn_left, self._turn_right
+        )
 
-        prev_x, prev_y = self.player.x, self.player.y
-        dx = dy = 0.0
-        if self._move_forward or self._move_backward:
-            fx, fy = self.player.get_forward_vector()
-            if self._move_forward:
-                dx += fx
-                dy += fy
-            if self._move_backward:
-                dx -= fx * self.backward_factor
-                dy -= fy * self.backward_factor
-        if dx != 0.0 or dy != 0.0:
-            self.player.move(dx, dy, delta_time, self.city)
-
-        moved = (abs(self.player.x - prev_x) > 1e-5) or (abs(self.player.y - prev_y) > 1e-5)
-        if moved:
-            base_speed = self.player.calculate_effective_speed(self.city)
-            move_scale = math.hypot(dx, dy)
-            self.last_move_scale = move_scale
-            target_speed = base_speed * move_scale
-        else:
-            target_speed = 0.0
-            self.last_move_scale = 0.0
-
-        speed_diff = target_speed - self.displayed_speed
-        self.displayed_speed += speed_diff * self.speed_smoothing * delta_time
-        if abs(speed_diff) < 0.01:
-            self.displayed_speed = target_speed
-        if not moved and abs(self.displayed_speed) < 0.05:
-            self.displayed_speed = 0.0
-
+        # Actualización del jugador (estados internos)
         self.player.update(delta_time)
-        # Delegar pickup/entrega
-        self.delivery_system.process(self.player, getattr(self, "pickup_radius", 1.5), self.show_notification)
 
         if self.orders_window:
             self.orders_window.update_animation(delta_time)
@@ -515,7 +479,6 @@ class CourierGame(arcade.Window):
                 self.state_manager.settings_menu.handle_key_press(symbol, modifiers)
 
     def on_key_release(self, symbol: int, modifiers: int):
-        # Solo gestionar en juego activo
         if self.state_manager.current_state != GameState.PLAYING:
             return
         if self.input_handler.on_key_release(symbol, modifiers):
