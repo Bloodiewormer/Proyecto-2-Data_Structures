@@ -7,8 +7,11 @@ from game.city import CityMap
 from game.utils import normalize_angle
 
 
-# Wolfenstein‑style
 class RayCastRenderer:
+    """
+    Renderer de mundo (raycasting estilo Wolfenstein) sin responsabilidades de UI.
+    El minimapa fue extraído a game.ui.minimap.MinimapRenderer.
+    """
     def __init__(self, city: CityMap, app_config: dict):
         self.city = city
         rendering = app_config.get("rendering", {}) or {}
@@ -29,13 +32,6 @@ class RayCastRenderer:
         self.col_wall_dark = tuple(colors.get("wall_dark", (160, 160, 160)))
         self.col_door = tuple(colors.get("door", (139, 69, 19)))
 
-        self.color_map = {
-            "C": self.col_street,
-            "B": self.col_building,
-            "P": self.col_park,
-            "player": tuple(colors.get("player", (255, 255, 0))),
-        }
-
         # Clouds
         map_span = max(30, max(self.city.width, self.city.height))
         random.seed(3)
@@ -50,10 +46,6 @@ class RayCastRenderer:
                 scale = random.uniform(0.45, 1.0)
                 puffs.append((jx, jy, scale))
             self.cloud_groups.append((cx, cy, puffs))
-
-        # Minimap cache
-        self._minimap_shapes = None
-        self._minimap_cache_key = None
 
         # Doors
         self.door_positions = set()
@@ -71,7 +63,7 @@ class RayCastRenderer:
 
         # Perf
         self.debug = bool(app_config.get("debug", False))
-        self._perf_accum = {"clouds": 0.0, "walls": 0.0, "floor": 0.0, "minimap": 0.0, "frames": 0}
+        self._perf_accum = {"clouds": 0.0, "walls": 0.0, "floor": 0.0, "frames": 0}
         self._last_perf_report = time.perf_counter()
 
         # limits
@@ -115,7 +107,6 @@ class RayCastRenderer:
                 if maxd and dist > maxd:
                     dist = maxd
                 dists.append(dist)
-        # If list shorter than sample_rows due to denom<=0 just truncate rows
         valid_len = min(len(dists), len(sample_rows))
         self._floor_sample_rows = sample_rows[:valid_len]
         self._floor_row_dist = dists[:valid_len]
@@ -123,11 +114,9 @@ class RayCastRenderer:
         self._cached_floor_step = self.floor_row_step
 
     def set_horizon_ratio(self, ratio: float):
-        """Adjust horizon (camera eye height) at runtime; 0.1 .. 0.9."""
         ratio = max(0.1, min(0.9, float(ratio)))
         if abs(ratio - getattr(self, 'horizon_ratio', 0.5)) > 1e-4:
             self.horizon_ratio = ratio
-            # Invalidate floor cache so distances recompute
             self._cached_floor_height = None
 
     # ---------- Sky ----------
@@ -227,8 +216,7 @@ class RayCastRenderer:
             line_h = int(height / max(0.0001, dist))
             half = line_h // 2
             top = min(height, horizon + half)
-            bottom = max(0, horizon - half)  # CORREGIDO: No permitir valores negativos
-
+            bottom = max(0, horizon - half)
             if bottom < top:
                 col = self.col_door if is_door else (self.col_wall_dark if side else self.col_wall)
                 wall_slices.append((left, right, bottom, top, col))
@@ -315,82 +303,6 @@ class RayCastRenderer:
             if in_span and last_right > span_left_px:
                 draw_rect(span_left_px, last_right, bottom, top, park_col)
 
-
-    # ---------- Minimap ----------
-    def _ensure_minimap_cache(self, x: int, y: int, size: int):
-        key = (self.city.width, self.city.height, id(self.city.tiles), size)
-        if key == self._minimap_cache_key and self._minimap_shapes is not None:
-            return
-        scale_x = size / max(1, self.city.width)
-        scale_y = size / max(1, self.city.height)
-        shapes = arcade.shape_list.ShapeElementList()
-        create_rect = arcade.shape_list.create_rectangle_filled
-        for row in range(self.city.height):
-            line = self.city.tiles[row]
-            for col in range(self.city.width):
-                tile = line[col]
-                if tile == "B":
-                    c = self.col_building
-                elif tile == "P":
-                    c = self.col_park
-                else:
-                    c = self.col_street
-                cx = x + (col + 0.5) * scale_x
-                cy = y + (row + 0.5) * scale_y
-                shapes.append(create_rect(cx, cy, scale_x, scale_y, c))
-        border = arcade.shape_list.create_rectangle_outline(
-            x + size / 2, y + size / 2, size, size, arcade.color.WHITE, border_width=2
-        )
-        shapes.append(border)
-        self._minimap_shapes = shapes
-        self._minimap_cache_key = key
-
-    def render_minimap(self, x: int, y: int, size: int, player):
-        t0 = time.perf_counter()
-        self._ensure_minimap_cache(x, y, size)
-        if not self._minimap_shapes:
-            return
-        self._minimap_shapes.draw()
-
-        scale_x = size / max(1, self.city.width)
-        scale_y = size / max(1, self.city.height)
-
-        # Dibujar puntos de recogida y entrega según estado de pedidos
-        if hasattr(player, 'inventory') and player.inventory:
-            # Pedidos en inventario del jugador
-            for order in player.inventory.orders:
-                # Punto de recogida (verde) - solo si el pedido está "in_progress" (aceptado pero no recogido)
-                if order.status == "in_progress":
-                    pickup_x = x + (order.pickup_pos[0] + 0.5) * scale_x
-                    pickup_y = y + (order.pickup_pos[1] + 0.5) * scale_y
-                    # Círculo verde para pickup
-                    arcade.draw_circle_filled(pickup_x, pickup_y, max(4, int(min(scale_x, scale_y) * 0.4)), arcade.color.YELLOW_ROSE)
-                    # Borde blanco para mejor visibilidad
-                    arcade.draw_circle_outline(pickup_x, pickup_y, max(4, int(min(scale_x, scale_y) * 0.4)),
-                                               arcade.color.COOL_BLACK, 1.5)
-
-                # Punto de entrega (rojo) - solo si el pedido está "picked_up" (ya recogido)
-                if order.status == "picked_up":
-                    dropoff_x = x + (order.dropoff_pos[0] + 0.5) * scale_x
-                    dropoff_y = y + (order.dropoff_pos[1] + 0.5) * scale_y
-                    # Círculo rojo para dropoff
-                    arcade.draw_circle_filled(dropoff_x, dropoff_y, max(4, int(min(scale_x, scale_y) * 0.4)),arcade.color.RED)
-                    # Borde blanco para mejor visibilidad
-                    arcade.draw_circle_outline(dropoff_x, dropoff_y, max(4, int(min(scale_x, scale_y) * 0.4)),arcade.color.COOL_BLACK, 1.5)
-
-        # Dibujar jugador encima
-        px = x + (player.x + 0.5) * scale_x
-        py = y + (player.y + 0.5) * scale_y
-        arcade.draw_circle_filled(px, py, max(2, int(min(scale_x, scale_y) * 0.3)), self.color_map["player"])
-
-        # Flecha de dirección del jugador
-        fx = math.cos(player.angle)
-        fy = math.sin(player.angle)
-        arcade.draw_line(px, py, px + fx * 10, py + fy * 10, self.color_map["player"], 2)
-
-        t1 = time.perf_counter()
-        self._perf_accum["minimap"] += (t1 - t0)
-
     # ---------- Public world render ----------
     def render_world(self, player: Any, weather_system: Any = None):
         win = arcade.get_window()
@@ -400,8 +312,6 @@ class RayCastRenderer:
         height = win.height
         horizon = int(height * 0.5)
         px, py, pang = self._get_player(player)
-
-        frame_start = time.perf_counter()
 
         self._prepare_rays(pang)
 
@@ -414,13 +324,13 @@ class RayCastRenderer:
         t_clouds = time.perf_counter()
         self._perf_accum["clouds"] += (t_clouds - t0)
 
-        # Floor - ANTES de las paredes para evitar superposiciones
+        # Floor - BEFORE walls to avoid overlaps
         t0 = time.perf_counter()
         self._render_floor(width, height, horizon, px, py)
         t_floor = time.perf_counter()
         self._perf_accum["floor"] += (t_floor - t0)
 
-        # Walls - DESPUÉS del piso
+        # Walls - AFTER floor
         t0 = time.perf_counter()
         wall_slices = self._gather_walls(width, height, horizon, px, py)
         self._draw_walls(wall_slices)
@@ -429,18 +339,14 @@ class RayCastRenderer:
 
         self._perf_accum["frames"] += 1
         now = time.perf_counter()
-        if now - self._last_perf_report > 2.0:
+        if now - self._last_perf_report > 2.0 and self.debug:
             f = max(1, self._perf_accum["frames"])
             clouds_ms = (self._perf_accum["clouds"] / f) * 1000
             walls_ms = (self._perf_accum["walls"] / f) * 1000
             floor_ms = (self._perf_accum["floor"] / f) * 1000
-            minimap_ms = (self._perf_accum["minimap"] / f) * 1000
-            total_ms = clouds_ms + walls_ms + floor_ms + minimap_ms
-            if self.debug:
-                print(
-                    f"[RendPerf] clouds={clouds_ms:.2f}ms walls={walls_ms:.2f}ms floor={floor_ms:.2f}ms minimap={minimap_ms:.2f}ms total≈{total_ms:.2f}ms"
-                )
-            self._perf_accum = {"clouds": 0.0, "walls": 0.0, "floor": 0.0, "minimap": 0.0, "frames": 0}
+            total_ms = clouds_ms + walls_ms + floor_ms
+            print(f"[RendPerf] clouds={clouds_ms:.2f}ms walls={walls_ms:.2f}ms floor={floor_ms:.2f}ms total≈{total_ms:.2f}ms")
+            self._perf_accum = {"clouds": 0.0, "walls": 0.0, "floor": 0.0, "frames": 0}
             self._last_perf_report = now
 
     # ---------- Content ----------
@@ -452,12 +358,3 @@ class RayCastRenderer:
         if self.city.tiles[tile_y][tile_x] != "B":
             return
         self.door_positions.add((tile_x, tile_y))
-
-    def _draw_hud(self):
-        earnings = self.player.earnings if self.player else 0.0
-        reputation = self.player.reputation if self.player else 0.0
-        # ... código existente ...
-        # CAMBIAR ESTA LÍNEA:
-        goal_earnings = float(self.app_config.get("game", {}).get("goal_earnings", 500))
-        progress = (earnings / goal_earnings) * 100 if goal_earnings > 0 else 0
-        # ... resto del código sin cambios

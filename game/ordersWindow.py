@@ -122,6 +122,34 @@ class ordersWindow:
             return
         self.selected_order_index = (self.selected_order_index - 1) % len(self.pending_orders)
 
+    def on_key_press(self, symbol: int, modifiers: int) -> bool:
+        """Handle key events when the orders window is open. Return True if consumed."""
+        if not self.is_open:
+            return False
+        try:
+            import arcade
+            if symbol == arcade.key.UP:
+                self.previous_order();
+                return True
+            if symbol == arcade.key.DOWN:
+                self.next_order();
+                return True
+            if symbol == arcade.key.A:
+                if not self.accept_order():
+                    if self.game and hasattr(self.game, 'show_notification'):
+                        self.game.show_notification("No hay capacidad para este pedido")
+                return True
+            if symbol == arcade.key.C:
+                self.cancel_order();
+                return True
+            if symbol == arcade.key.O:
+                # Allow closing via O while open
+                self.is_open = False
+                return True
+        except Exception:
+            return False
+        return False
+
     def draw(self):
         """Dibujar la ventana de pedidos pendientes"""
         if not self.is_open and self.animation_progress <= 0:
