@@ -1,7 +1,7 @@
 import math
 import arcade
 from typing import Optional
-from game.city import CityMap
+from game.core.city import CityMap
 
 
 class MinimapRenderer:

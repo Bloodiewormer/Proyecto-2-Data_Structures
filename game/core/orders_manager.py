@@ -2,9 +2,8 @@ import os
 import json
 import random
 from datetime import datetime, timezone
-from typing import Optional
 
-from game import utils
+from game.core import utils
 from game.orders import Order
 
 

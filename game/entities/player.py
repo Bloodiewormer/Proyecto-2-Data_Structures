@@ -1,9 +1,8 @@
 import math
-import copy
-from typing import Dict, Any, Tuple, Optional, List
+from typing import Dict, Any, Tuple, Optional
 from collections import deque
-from .utils import clamp, normalize_angle
-from .inventory import Inventory
+from game.core.utils import clamp, normalize_angle
+from game.inventory import Inventory
 from game.orders import Order
 from datetime import datetime
 

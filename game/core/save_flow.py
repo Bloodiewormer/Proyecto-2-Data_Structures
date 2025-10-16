@@ -1,5 +1,4 @@
-from typing import Optional
-from game.SaveManager import SaveManager
+from game.core.save_manager import SaveManager
 from game.gamestate import GameState
 
 

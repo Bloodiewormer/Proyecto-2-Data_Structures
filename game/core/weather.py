@@ -1,7 +1,7 @@
 # file: game/weather.py
 import json
 import random
-from game.utils import  lerp
+from game.core.utils import  lerp
 from typing import Dict, Any, Tuple
 from pathlib import Path
 

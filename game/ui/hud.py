@@ -1,7 +1,7 @@
 import math
 import random
 import arcade
-from game.utils import format_time
+from game.core.utils import format_time
 
 
 class HUDRenderer:

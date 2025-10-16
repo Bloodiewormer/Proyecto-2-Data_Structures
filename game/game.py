@@ -3,17 +3,17 @@ import arcade
 from typing import Optional
 
 from api.client import APIClient
-from game.city import CityMap
+from game.core.city import CityMap
 from game.input.handler import InputHandler
 from game.ui.hud import HUDRenderer
-from game.player import Player
+from game.entities.player import Player
 from game.rendering.world_renderer import RayCastRenderer
 from game.ui.minimap import MinimapRenderer
 from game.ui.notifications import NotificationManager
-from game.weather import WeatherSystem
+from game.core.weather import WeatherSystem
 from game.gamestate import GameStateManager, GameState
-from game.SaveManager import SaveManager
-from game.audio import AudioManager
+from game.core.save_manager import SaveManager
+from game.core.audio import AudioManager
 from game.core.timer import GameTimer
 from game.core.orders_manager import OrdersManager
 from game.core.delivery import DeliverySystem

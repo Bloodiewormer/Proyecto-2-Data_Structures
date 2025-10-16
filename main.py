@@ -7,7 +7,7 @@ from pathlib import Path
 sys.path.append(str(Path(__file__).parent))
 
 from game.game import CourierGame
-from game.utils import load_config, ensure_directories
+from game.core.utils import load_config, ensure_directories
 
 
 def main():

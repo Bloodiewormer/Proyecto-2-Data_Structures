@@ -3,8 +3,8 @@ import time
 import random
 from typing import Any, Tuple, List
 import arcade
-from game.city import CityMap
-from game.utils import normalize_angle
+from game.core.city import CityMap
+from game.core.utils import normalize_angle
 
 
 class RayCastRenderer:

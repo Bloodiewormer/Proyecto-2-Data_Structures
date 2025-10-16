@@ -110,7 +110,7 @@ class MainMenu:
 
     def _get_save_info(self) -> str:
         try:
-            from game.SaveManager import SaveManager
+            from game.core.save_manager import SaveManager
             save_manager = SaveManager(self.game.app_config)
             info = save_manager.get_save_info()
             if info:
