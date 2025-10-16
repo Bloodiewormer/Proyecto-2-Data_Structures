@@ -2,6 +2,7 @@ import arcade
 from typing import List, Optional
 from game.orders import Order
 
+
 class ordersWindow:
     def __init__(self, game):
         self.game = game  # Referencia al juego principal
@@ -10,7 +11,7 @@ class ordersWindow:
         self.is_open = False
         self.animation_progress = 0.0
         self.animation_speed = 5.0
-        
+
         # Dimensiones del panel
         self.panel_width = 500
         self.panel_height = 500
@@ -35,7 +36,7 @@ class ordersWindow:
             if not hasattr(self, '_position_initialized') or not self._position_initialized:
                 if self.game:
                     self.ensure_initial_position(self.game.width, self.game.height)
-        
+
             self.is_open = not self.is_open
             return True
         else:
@@ -67,47 +68,47 @@ class ordersWindow:
         """Aceptar el pedido seleccionado"""
         if not self.pending_orders or self.selected_order_index >= len(self.pending_orders):
             return False
-        
+
         order = self.pending_orders[self.selected_order_index]
-        
+
         # Intentar agregar al inventario
         if self.game.player and self.game.player.add_order_to_inventory(order):
             # Remover de pedidos pendientes
             self.pending_orders.pop(self.selected_order_index)
-            
+
             # Ajustar índice si es necesario
             if self.selected_order_index >= len(self.pending_orders) and self.pending_orders:
                 self.selected_order_index = len(self.pending_orders) - 1
             elif not self.pending_orders:
                 self.selected_order_index = 0
                 self.is_open = False  # Cerrar ventana si no hay más pedidos
-            
+
             self.game.show_notification(f"Pedido {order.id} aceptado")
             return True
-        
+
         return False
 
     def cancel_order(self):
         """Cancelar el pedido seleccionado (baja reputación)"""
         if not self.pending_orders or self.selected_order_index >= len(self.pending_orders):
             return
-        
+
         order = self.pending_orders[self.selected_order_index]
-        
+
         # Bajar reputación del jugador
         if self.game.player:
             self.game.player.cancel_order()
-        
+
         # Remover de pedidos pendientes
         self.pending_orders.pop(self.selected_order_index)
-        
+
         # Ajustar índice si es necesario
         if self.selected_order_index >= len(self.pending_orders) and self.pending_orders:
             self.selected_order_index = len(self.pending_orders) - 1
         elif not self.pending_orders:
             self.selected_order_index = 0
             self.is_open = False  # Cerrar ventana si no hay más pedidos
-        
+
         self.game.show_notification(f"Pedido {order.id} cancelado (-4 reputación)")
 
     def next_order(self):
@@ -127,12 +128,11 @@ class ordersWindow:
         if not self.is_open:
             return False
         try:
-            import arcade
             if symbol == arcade.key.UP:
-                self.previous_order();
+                self.previous_order()
                 return True
             if symbol == arcade.key.DOWN:
-                self.next_order();
+                self.next_order()
                 return True
             if symbol == arcade.key.A:
                 if not self.accept_order():
@@ -140,7 +140,7 @@ class ordersWindow:
                         self.game.show_notification("No hay capacidad para este pedido")
                 return True
             if symbol == arcade.key.C:
-                self.cancel_order();
+                self.cancel_order()
                 return True
             if symbol == arcade.key.O:
                 # Allow closing via O while open
@@ -157,7 +157,7 @@ class ordersWindow:
 
         # Obtener posición actual interpolada
         current_x, current_y = self.get_current_position()
-        
+
         # Fondo del panel con transparencia
         alpha = int(255 * self.animation_progress)
         arcade.draw_lrbt_rectangle_filled(
@@ -167,9 +167,6 @@ class ordersWindow:
             current_y + self.panel_height,
             (40, 40, 60, alpha)
         )
-
-
-        
 
         # Borde
         arcade.draw_lrbt_rectangle_outline(
@@ -206,11 +203,11 @@ class ordersWindow:
 
         # Pedido seleccionado
         order = self.pending_orders[self.selected_order_index]
-        
+
         # Información del pedido
         info_y = current_y + self.panel_height - 80
         line_height = 25
-        
+
         details = [
             f"ID: {order.id}",
             f"Pago: ${order.payout:.0f}",
@@ -220,7 +217,7 @@ class ordersWindow:
             f"Entregar en: ({order.dropoff_pos[0]}, {order.dropoff_pos[1]})",
             f"Tiempo límite: {order.time_limit:.0f}s"
         ]
-        
+
         for i, detail in enumerate(details):
             arcade.draw_text(
                 detail,
@@ -249,68 +246,30 @@ class ordersWindow:
         accept_cx = current_x + self.panel_width // 4
         cancel_cx = current_x + 3 * self.panel_width // 4
         accept_cy = cancel_cy = button_y + button_height // 2
-        
+
         # Botón Aceptar
-        accept_color = (0, 150, 0, alpha) if self.game.player and self.game.player.inventory.can_add_more else (100, 100, 100, alpha)
+        accept_color = (0, 150, 0, alpha) if self.game.player and self.game.player.inventory.can_add_more else (100,
+                                                                                                                100,
+                                                                                                                100,
+                                                                                                                alpha)
         l = accept_cx - button_width // 2
         r = accept_cx + button_width // 2
         b = accept_cy - button_height // 2
         t = accept_cy + button_height // 2
-        arcade.draw_lrbt_rectangle_filled(
-            l,
-            r,
-            b,
-            t,
-            accept_color
-        )
-        arcade.draw_lrbt_rectangle_outline(
-            l, 
-            r, 
-            b, 
-            t, 
-            (255, 255, 255, alpha), 
-            2
-        )
-        arcade.draw_text(
-            "Aceptar (A)",
-            accept_cx,
-            accept_cy,
-            (255, 255, 255, alpha),
-            14,
-            anchor_x="center",
-            anchor_y="center"
-        )
+        arcade.draw_lrbt_rectangle_filled(l, r, b, t, accept_color)
+        arcade.draw_lrbt_rectangle_outline(l, r, b, t, (255, 255, 255, alpha), 2)
+        arcade.draw_text("Aceptar (A)", accept_cx, accept_cy, (255, 255, 255, alpha), 14, anchor_x="center",
+                         anchor_y="center")
 
         # Botón Cancelar
         l = cancel_cx - button_width // 2
         r = cancel_cx + button_width // 2
         b = cancel_cy - button_height // 2
         t = cancel_cy + button_height // 2
-        arcade.draw_lrbt_rectangle_filled(
-            l,
-            r,
-            b,
-            t,
-            (150, 0, 0, alpha)
-        )
-        arcade.draw_lrbt_rectangle_outline(
-            l, 
-            r, 
-            b, 
-            t, 
-            (255, 255, 255, alpha), 
-            2
-        )
-
-        arcade.draw_text(
-            "Cancelar (C)",
-            cancel_cx,
-            cancel_cy,
-            (255, 255, 255, alpha),
-            14,
-            anchor_x="center",
-            anchor_y="center"
-        )
+        arcade.draw_lrbt_rectangle_filled(l, r, b, t, (150, 0, 0, alpha))
+        arcade.draw_lrbt_rectangle_outline(l, r, b, t, (255, 255, 255, alpha), 2)
+        arcade.draw_text("Cancelar (C)", cancel_cx, cancel_cy, (255, 255, 255, alpha), 14, anchor_x="center",
+                         anchor_y="center")
 
         # Instrucciones
         arcade.draw_text(

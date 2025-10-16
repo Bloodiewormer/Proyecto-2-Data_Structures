@@ -1,5 +1,3 @@
-import traceback
-
 import time
 import arcade
 from typing import Optional
@@ -21,9 +19,12 @@ from game.core.orders_manager import OrdersManager
 from game.core.delivery import DeliverySystem
 from game.core.player_controller import PlayerController
 from game.core.game_rules import GameRules, GameRulesConfig
+from game.core.save_flow import SaveFlow
+from game.core.score_flow import ScoreFlow
 from .orders import Order
-from .ordersWindow import ordersWindow
-from game.score import ScoreManager, ScoreScreen
+from game.ui.orders_window import ordersWindow
+from game.core.score_manager import ScoreManager
+from game.ui.score_screen import ScoreScreen
 
 
 class CourierGame(arcade.Window):
@@ -114,6 +115,10 @@ class CourierGame(arcade.Window):
 
         self.debug = bool(self.app_config.get("debug", False))
 
+        # Flujos de guardado y score
+        self.save_flow = SaveFlow(self.app_config, debug=self.debug)
+        self.score_flow = ScoreFlow(self.files_conf)
+
         self.orders_window = None
         self.orders_window_active = False
 
@@ -167,93 +172,13 @@ class CourierGame(arcade.Window):
             self.state_manager.change_state(GameState.MAIN_MENU)
 
     def load_game(self):
-        try:
-            save_data = self.save_manager.load_game()
-            if not save_data:
-                self.show_notification("Error al cargar partida")
-                return
-
-            self._initialize_game_systems()
-
-            if "player" in save_data:
-                self.save_manager.restore_player(self.player, save_data["player"])
-
-            if "city" in save_data:
-                self.save_manager.restore_city(self.city, save_data["city"])
-
-            if "orders" in save_data:
-                self.orders_data = save_data["orders"]
-
-            if "game_stats" in save_data:
-                self.game_stats = save_data["game_stats"]
-                self.total_play_time = self.game_stats.get("play_time", 0)
-                self.time_remaining = self.game_stats.get("time_remaining", self.time_limit)
-
-            # Restaurar timer centralizado
-            self.timer = GameTimer(time_limit_seconds=self.time_limit)
-            self.timer.restore(play_time=self.total_play_time, time_remaining=self.time_remaining)
-
-            # Reemplaza _setup_orders por OrdersManager
-            self.orders_manager.setup_orders(self.api_client, self.files_conf, self.app_config, self.city, self.renderer, self.debug)
-            self.pending_orders = self.orders_manager.pending_orders
-
-            self.state_manager.change_state(GameState.PLAYING)
-            self.show_notification("Partida cargada")
-
-            game_music = self.app_config.get("audio", {}).get("game_music")
-            if game_music:
-                self.audio_manager.play_music(game_music, loop=True)
-
-            if self.debug:
-                print(f"Partida cargada - Tiempo restante: {self.time_remaining:.1f}s")
-                print(f"Total jugado: {self.total_play_time:.1f}s")
-
-        except Exception as e:
-            print(f"Error al cargar partida: {e}")
-            traceback.print_exc()
-            self.show_notification("Error al cargar partida")
-            self.state_manager.change_state(GameState.MAIN_MENU)
+        return self.save_flow.load_game(self)
 
     def save_game(self):
-        try:
-            if not self.player or not self.city:
-                return False
+        return self.save_flow.save_game(self)
 
-            # Sincroniza desde el timer
-            self.game_stats["play_time"] = self.timer.total_play_time
-            self.game_stats["time_remaining"] = self.timer.time_remaining
-
-            success = self.save_manager.save_game(
-                self.player, self.city, self.orders_data, self.game_stats
-            )
-
-            if success:
-                self.show_notification("Partida guardada")
-                if self.debug:
-                    print(f"Guardado - Tiempo restante: {self.time_remaining:.1f}s")
-                    print(f"Total jugado: {self.total_play_time:.1f}s")
-            else:
-                self.show_notification("Error al guardar")
-
-            return success
-
-        except Exception as e:
-            print(f"Error crítico al guardar: {e}")
-            traceback.print_exc()
-            self.show_notification("Error al guardar")
-            return False
-
-    def pause_game(self):
-        if self.state_manager.current_state == GameState.PLAYING:
-            self.state_manager.change_state(GameState.PAUSED)
-            if hasattr(self, 'audio_manager'):
-                self.audio_manager.pause_music()
-
-    def resume_game(self):
-        if self.state_manager.current_state == GameState.PAUSED:
-            self.state_manager.change_state(GameState.PLAYING)
-            if hasattr(self, 'audio_manager'):
-                self.audio_manager.resume_music()
+    def _end_game(self, victory: bool, message: str):
+        self.score_flow.end_game(self, victory, message)
 
     def return_to_main_menu(self):
         self.player = None
@@ -314,28 +239,6 @@ class CourierGame(arcade.Window):
             weather_ms = (self._perf_accum_game["weather"] / f) * 1000
             print(
                 f"[GamePerf] (setup) api={api_ms:.2f}ms inventory={inv_ms:.2f}ms orders={orders_ms:.2f}ms weather={weather_ms:.2f}ms")
-
-    def _end_game(self, victory: bool, message: str):
-        self.show_notification(f" {message}")
-
-        try:
-            entry = self.score_manager.calculate_score(
-                self.player,
-                self.time_remaining,
-                self.time_limit,
-                victory,
-                self.total_play_time,
-            )
-            leaderboard = self.score_manager.add_score(entry)
-            self.game_over_active = True
-            self.score_screen = ScoreScreen(self, entry, leaderboard)
-
-            self.state_manager.change_state(GameState.PAUSED)
-            if hasattr(self, 'audio_manager'):
-                self.audio_manager.pause_music()
-        except Exception as e:
-            print(f"Error generando score: {e}")
-            self.return_to_main_menu()
 
     def on_draw(self):
         self.clear()
