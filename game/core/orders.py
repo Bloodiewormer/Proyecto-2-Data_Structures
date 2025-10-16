@@ -1,8 +1,6 @@
-# file: game/orders.py
-from typing import Dict, List, Any, Optional, Tuple
+from typing import Dict, Any, Optional, Tuple, List
 from datetime import datetime, timedelta
 import random
-
 
 class OrderStatus:
     PENDING = "pending"
@@ -14,123 +12,128 @@ class OrderStatus:
 
 
 class Order:
-    # Campos de timer por pedido (se inician en aceptar)
     accepted_at: float = -1.0
     time_remaining: float = -1.0
 
-    def __init__(self, order_id: str, pickup_pos: Tuple[int, int],
-                 dropoff_pos: Tuple[int, int], payment: float,
-                 time_limit: float = 600.0,
-                 weight: float = None,
-                 priority: int = 0,
-                 deadline: str = "",
-                 release_time: int = 0):
+    def __init__(
+        self,
+        order_id: str,
+        pickup_pos: Tuple[int, int],
+        dropoff_pos: Tuple[int, int],
+        payment: float,
+        time_limit: float,
+        weight: float = 0.0,
+        priority: int = 0,
+        deadline: Optional[str] = None,
+        release_time: int = 0,
+        status: str = OrderStatus.PENDING,
+        created_at: Optional[datetime] = None,
+        expires_at: Optional[datetime] = None,
+        picked_up_at: Optional[datetime] = None,
+        delivered_at: Optional[datetime] = None,
+        description: str = "",
+        fragile: bool = False,
+    ) -> None:
         self.id = order_id
         self.pickup_pos = pickup_pos
         self.dropoff_pos = dropoff_pos
-        self.payment = payment
-        self.time_limit = time_limit
-        self.status = OrderStatus.PENDING
+        self.payment = float(payment)
+        self.time_limit = float(time_limit)
 
-        # Tiempos
-        self.created_at = datetime.now()
-        self.expires_at = self.created_at + timedelta(seconds=time_limit)
-        self.picked_up_at = None
-        self.delivered_at = None
+        self.status = status
 
-        # Datos del pedido
-        self.description = "Entrega urgente"
-        if weight is not None:
-            self.weight = weight
-        else:
-            self.weight = random.uniform(0.5, 3.0)  # kg
-        
-        self.fragile = random.choice([True, False])
+        self.created_at = created_at or datetime.now()
+        self.expires_at = expires_at or (self.created_at + timedelta(seconds=self.time_limit))
+        self.picked_up_at = picked_up_at
+        self.delivered_at = delivered_at
 
-        # Nuevos atributos para compatibilidad con el inventario
-        self.priority = priority
+        self.weight = float(weight)
+        self.fragile = bool(fragile)
+        self.description = description
+        self.priority = int(priority)
         self.deadline = deadline
-        self.release_time = release_time
-        self.payout = payment  # Alias para payment para compatibilidad
+        self.release_time = int(release_time)
+        self.payout = self.payment
 
         self.accepted_at = -1.0
         self.time_remaining = -1.0
 
-    @property
-    def pickup_location(self):
-        return list(self.pickup_pos)
-    
-    @property
-    def dropoff_location(self):
-        return list(self.dropoff_pos)
-
     def to_dict(self) -> Dict[str, Any]:
-        """Serializar orden para guardado"""
         return {
             "id": self.id,
             "pickup_pos": list(self.pickup_pos),
             "dropoff_pos": list(self.dropoff_pos),
             "payment": self.payment,
             "time_limit": self.time_limit,
-            "status": self.status,
-            "created_at": self.created_at.isoformat(),
-            "expires_at": self.expires_at.isoformat(),
-            "picked_up_at": self.picked_up_at.isoformat() if self.picked_up_at else None,
-            "delivered_at": self.delivered_at.isoformat() if self.delivered_at else None,
-            "description": self.description,
             "weight": self.weight,
-            "fragile": self.fragile,
             "priority": self.priority,
             "deadline": self.deadline,
             "release_time": self.release_time,
+            "status": self.status,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+            "expires_at": self.expires_at.isoformat() if self.expires_at else None,
+            "picked_up_at": self.picked_up_at.isoformat() if self.picked_up_at else None,
+            "delivered_at": self.delivered_at.isoformat() if self.delivered_at else None,
+            "description": self.description,
+            "fragile": self.fragile,
+            # Persist per\-order timer state
             "accepted_at": self.accepted_at,
-            "time_remaining": self.time_remaining
+            "time_remaining": self.time_remaining,
         }
 
     @classmethod
-    def from_dict(cls, data):
-        try:
-            return cls(
-                order_id=data["id"],
-                pickup_pos=tuple(data["pickup"]),
-                dropoff_pos=tuple(data["dropoff"]),
-                payment=data.get("payout", 0.0),
-                weight=data.get("weight", 0.0),
-                priority=data.get("priority", 0),
-                deadline=data.get("deadline", ""),
-                release_time=data.get("release_time", 0.0),
-                status=data.get("status", "pending"),
-                accepted_at=data.get("accepted_at", -1.0),
-                time_remaining=data.get("time_remaining", -1.0),
-            )
-        except KeyError as e:
-            print(f"Faltan datos clave al reconstruir el pedido: {data}. Error: {e}")
-            raise
+    def from_dict(cls, data: Dict[str, Any]) -> "Order":
+        obj = cls(
+            order_id=data["id"],
+            pickup_pos=tuple(data["pickup_pos"]),
+            dropoff_pos=tuple(data["dropoff_pos"]),
+            payment=float(data["payment"]),
+            time_limit=float(data["time_limit"]),
+            weight=float(data.get("weight", 0.0)),
+            priority=int(data.get("priority", 0)),
+            deadline=data.get("deadline"),
+            release_time=int(data.get("release_time", 0)),
+            status=str(data.get("status", OrderStatus.PENDING)),
+            created_at=datetime.fromisoformat(data["created_at"]) if data.get("created_at") else None,
+            expires_at=datetime.fromisoformat(data["expires_at"]) if data.get("expires_at") else None,
+            picked_up_at=datetime.fromisoformat(data["picked_up_at"]) if data.get("picked_up_at") else None,
+            delivered_at=datetime.fromisoformat(data["delivered_at"]) if data.get("delivered_at") else None,
+            description=str(data.get("description", "")),
+            fragile=bool(data.get("fragile", False)),
+        )
+        # Restore per\-order timer state
+        obj.accepted_at = float(data.get("accepted_at", -1.0))
+        obj.time_remaining = float(data.get("time_remaining", -1.0))
+        return obj
+
 
     def is_expired(self) -> bool:
-        """Verificar si la orden ha expirado"""
-        return datetime.now() > self.expires_at and self.status == OrderStatus.PENDING
+        try:
+            if self.accepted_at >= 0:
+                return self.time_remaining == 0.0
+            return (datetime.now() > self.expires_at) and (self.status in (OrderStatus.PENDING, OrderStatus.IN_PROGRESS))
+        except Exception:
+            return False
 
     def get_remaining_time(self) -> float:
-        """Obtener tiempo restante en segundos"""
-        remaining = (self.expires_at - datetime.now()).total_seconds()
-        return max(0, remaining)
+        try:
+            remaining = (self.expires_at - datetime.now()).total_seconds()
+            return max(0.0, float(remaining))
+        except Exception:
+            return 0.0
 
     def pickup(self):
-        """Marcar orden como recogida"""
-        if self.status == OrderStatus.IN_PROGRESS:
+        if self.status in (OrderStatus.IN_PROGRESS, OrderStatus.PENDING):
             self.status = OrderStatus.PICKED_UP
             self.picked_up_at = datetime.now()
 
     def deliver(self):
-        """Marcar orden como entregada"""
         if self.status == OrderStatus.PICKED_UP:
             self.status = OrderStatus.DELIVERED
             self.delivered_at = datetime.now()
 
     def cancel(self):
-        """Cancelar orden"""
-        if self.status in [OrderStatus.PENDING, OrderStatus.PICKED_UP]:
+        if self.status in [OrderStatus.PENDING, OrderStatus.PICKED_UP, OrderStatus.IN_PROGRESS]:
             self.status = OrderStatus.CANCELLED
 
     def start_timer(self, current_play_time: float):
@@ -141,9 +144,6 @@ class Order:
         if self.accepted_at < 0 or self.time_remaining < 0:
             return
         self.time_remaining = max(0.0, float(getattr(self, "time_limit", 0.0)) - elapsed_since_accept)
-
-    def is_expired(self) -> bool:
-        return self.accepted_at >= 0 and self.time_remaining == 0.0
 
 
 class OrderManager:

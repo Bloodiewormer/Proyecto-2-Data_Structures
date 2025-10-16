@@ -179,10 +179,17 @@ class Player:
         self.inventory.orders.clear()
 
         for order_data in state['inventory_snapshot']:
+            pos_p = order_data.get('pickup_pos', (0, 0))
+            pos_d = order_data.get('dropoff_pos', (0, 0))
+            try:
+                px = (int(pos_p[0]), int(pos_p[1])) if isinstance(pos_p, (list, tuple)) and len(pos_p) >= 2 else (0, 0)
+                dx = (int(pos_d[0]), int(pos_d[1])) if isinstance(pos_d, (list, tuple)) and len(pos_d) >= 2 else (0, 0)
+            except Exception:
+                px, dx = (0, 0), (0, 0)
             order = Order(
                 order_id=order_data['id'],
-                pickup_pos=tuple(order_data['pickup_pos']),
-                dropoff_pos=tuple(order_data['dropoff_pos']),
+                pickup_pos=px,
+                dropoff_pos=dx,
                 payment=float(order_data['payment']),
                 time_limit=float(order_data.get('time_limit', 600.0)),
                 weight=float(order_data.get('weight', 1.0)),
