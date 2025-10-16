@@ -4,7 +4,7 @@ import random
 from datetime import datetime, timezone
 
 from game.core import utils
-from game.orders import Order
+from game.core.orders import Order
 
 
 class OrdersManager:

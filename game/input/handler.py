@@ -6,7 +6,6 @@ from game.gamestate import GameState
 class InputHandler:
     """
     Maneja la entrada de teclado durante el juego y delega acciones.
-    Mantiene los mismos atajos/efectos que había en game.py.
     """
     def __init__(self, game):
         self.game = game
@@ -15,12 +14,10 @@ class InputHandler:
         game = self.game
         state = game.state_manager.current_state
 
-        # Solo manejamos teclas del juego activo aquí (ESC y menús quedan en game.py)
         if state != GameState.PLAYING:
-            # Deja que game.py maneje MAIN_MENU, PAUSED, SETTINGS y pantallas de score/pausa
             return False
 
-        # Si la ventana de pedidos está abierta, ciertas teclas se consumen por la UI de pedidos
+        # Ventana de pedidos (si está abierta consume teclas)
         if game.orders_window and game.orders_window.is_open:
             if symbol == arcade.key.UP:
                 game.orders_window.previous_order()
@@ -61,7 +58,10 @@ class InputHandler:
             self._toggle_inventory_sort()
             return True
         elif symbol == arcade.key.I:
-            self._toggle_inventory()
+            # AHORA: panel desde el HUD (no el modelo)
+            if getattr(game, "hud", None) and hasattr(game.hud, "toggle_inventory"):
+                game.hud.toggle_inventory()
+                game.show_notification("Inventario abierto" if game.hud.is_inventory_open() else "Inventario cerrado")
             return True
         elif symbol == arcade.key.O:
             if game.orders_window:
@@ -101,7 +101,7 @@ class InputHandler:
                         game.show_notification("espera antes de deshacer de nuevo", 1.0)
             return True
 
-        # Teclas de debug (solo si game.debug)
+        # Teclas de debug
         if game.debug and game.weather_system:
             if symbol == arcade.key.KEY_1:
                 game.weather_system.force_weather_change("clear")
@@ -136,7 +136,6 @@ class InputHandler:
 
     def on_key_release(self, symbol: int, modifiers: int) -> bool:
         game = self.game
-        # Solo liberaciones durante gameplay
         if game.state_manager.current_state != GameState.PLAYING:
             return False
 
@@ -154,7 +153,7 @@ class InputHandler:
             return True
         return False
 
-    # ---------- helpers (migrados desde game.py) ----------
+    # ---------- helpers ----------
     def _cycle_inventory_order(self, reverse: bool = False):
         game = self.game
         if not game.player or not getattr(game.player, "inventory", None):
@@ -181,12 +180,3 @@ class InputHandler:
         else:
             inv.sort_by_priority()
         game.show_notification(f"Orden: {inv.sort_mode}", 1.2)
-
-    def _toggle_inventory(self):
-        game = self.game
-        if game.player and hasattr(game.player, 'inventory'):
-            game.player.inventory.toggle_open()
-            if game.player.inventory.is_open:
-                game.show_notification("Inventario abierto")
-            else:
-                game.show_notification("Inventario cerrado")

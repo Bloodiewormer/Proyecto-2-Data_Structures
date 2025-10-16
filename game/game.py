@@ -21,7 +21,7 @@ from game.core.player_controller import PlayerController
 from game.core.game_rules import GameRules, GameRulesConfig
 from game.core.save_flow import SaveFlow
 from game.core.score_flow import ScoreFlow
-from .orders import Order
+from game.core.orders import Order
 from game.ui.orders_window import ordersWindow
 from game.core.score_manager import ScoreManager
 from game.ui.score_screen import ScoreScreen
@@ -318,7 +318,7 @@ class CourierGame(arcade.Window):
         self.pending_orders = self.orders_manager.pending_orders
 
         if self.player and hasattr(self.player, 'inventory'):
-            self.player.inventory.update_animation(delta_time)
+            self.hud.update(delta_time, self)
 
         if self.weather_system and self.player:
             t0 = time.perf_counter()

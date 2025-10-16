@@ -1,4 +1,3 @@
-import arcade
 from enum import Enum
 
 class GameState(Enum):
@@ -41,7 +40,7 @@ class GameStateManager:
 
     def _show_settings(self):
         if not self.settings_menu:
-            from game.settings import SettingsMenu
+            from game.ui.menus.settings_menu import SettingsMenu
             self.settings_menu = SettingsMenu(self.game)
         print("Menú de settings inicializado")
 

@@ -2,6 +2,7 @@ import math
 import random
 import arcade
 from game.core.utils import format_time
+from game.ui.inventory_panel import InventoryPanel
 
 
 class HUDRenderer:
@@ -16,12 +17,13 @@ class HUDRenderer:
     # --------- Public ---------
     def draw(self, game):
         # Inventario (panel) en esquina superior derecha
-        if game.player:
+        self.ensure_inventory_panel(game)
+        if self._inv_panel:
             inventory_width = 450
             inventory_height = 400
             inventory_x = game.width - inventory_width - 50
             inventory_y = game.height - inventory_height - 50
-            game.player.inventory.draw_inventory(inventory_x, inventory_y, inventory_width, inventory_height)
+            self._inv_panel.draw(inventory_x, inventory_y, inventory_width, inventory_height)
 
         # Métricas rápidas (solo debug)
         if self.debug and game.frame_times:
@@ -68,6 +70,9 @@ class HUDRenderer:
         arcade.draw_text(" I - Inventario", game.width - 60, _y - _h, arcade.color.WHITE, 12, anchor_x="center")
         arcade.draw_text(" O - Pedidos", game.width - 60, _y - 2 * _h, arcade.color.WHITE, 12, anchor_x="center")
         arcade.draw_text(" U - Devolverse", game.width - 60, _y - 3 * _h, arcade.color.WHITE, 12, anchor_x="center")
+
+
+
 
     # --------- Private (helpers) ---------
     def _draw_earnings_progress_top(self, game, earnings: float, goal_earnings: float):
@@ -360,3 +365,20 @@ class HUDRenderer:
         else:
             self._draw_weather_cloud(icx, icy, scale=0.9, color=cloud_color)
             arcade.draw_circle_filled(icx + 18, icy - 12, 3, arcade.color.WHITE)
+
+    def ensure_inventory_panel(self, game):
+        if game.player and getattr(game.player, "inventory", None):
+            if self._inv_panel is None or self._inv_panel.inventory is not game.player.inventory:
+                self._inv_panel = InventoryPanel(game.player.inventory)
+
+    def toggle_inventory(self):
+        self.ensure_inventory_panel(self.game if hasattr(self, 'game') else None)
+        if self._inv_panel:
+            self._inv_panel.toggle()
+
+    def is_inventory_open(self) -> bool:
+        return bool(self._inv_panel and self._inv_panel.is_open)
+
+    def update(self, delta_time: float, game):
+        if self._inv_panel:
+            self._inv_panel.update(delta_time)

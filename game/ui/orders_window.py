@@ -1,6 +1,6 @@
 import arcade
-from typing import List, Optional
-from game.orders import Order
+from typing import List
+from game.core.orders import Order
 
 
 class ordersWindow:
