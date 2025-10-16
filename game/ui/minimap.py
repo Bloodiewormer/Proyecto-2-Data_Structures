@@ -29,6 +29,12 @@ class MinimapRenderer:
     def set_debug(self, flag: bool):
         self.debug = bool(flag)
 
+    def get_perf_snapshot(self):
+        f = max(1, self._perf_accum.get("frames", 0))
+        if f <= 0:
+            return {"render_ms": 0.0}
+        return {"render_ms": (self._perf_accum["render"] / f) * 1000.0}
+
     def _ensure_minimap_cache(self, x: int, y: int, size: int):
         key = (self.city.width, self.city.height, id(self.city.tiles), size)
         if key == self._minimap_cache_key and self._minimap_shapes is not None:

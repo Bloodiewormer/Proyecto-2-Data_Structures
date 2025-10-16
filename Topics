@@ -8,6 +8,10 @@ Sistema de caché
 Cadenas de Markov
 Interpolación lineal
 
-al cargar la partida el player no tiene los pedidos que tenia antes de guardar
-agregar un apartado de información en el menú principal sobre los controles del juego y nombre de los desarrolladores
-si no guardados hacer que no se pueda estar en la opción de cargar partida en el menú principal
+pero no se esta guardando el estado o si el pedido fue cancelado
+el desacer vuelve para atras todo menos el tiempo
+el peso de los pedidos tendria que aparece solamente cuando se agarra el pedido, no cuando se muestra in progress
+el tiempo deberia empezar a correr cuando el pedido es aceptado no apenas en pickup
+el apartado de info no cabe a la izquierda si quieres pon una opcion para la misma
+todavia no salta de opcion cuando no hay archivo de guardado el mismo lleva nombre savegame.sav
+vi metodos de performance que no se estan usando o estan repetidos

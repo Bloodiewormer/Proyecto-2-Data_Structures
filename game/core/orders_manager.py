@@ -24,11 +24,12 @@ class OrdersManager:
         if self._orders_window:
             self._orders_window.set_pending_orders(self.pending_orders)
 
-    def setup_orders(self, api_client, files_conf: dict, app_config: dict, city, renderer, debug: bool = False):
+    def setup_orders(self, api_client, files_conf: dict, app_config: dict, city, renderer, debug: bool = False, skip_ids: set[str] | None = None):
         """
         Carga pedidos de API o backup y prepara la cola de liberación.
         Genera puertas (renderer.generate_door_at) cuando corresponde.
         """
+        skip_ids = set(skip_ids or ())
         self.debug = bool(debug)
         self.order_release_interval = float(app_config.get("game", {}).get("order_release_seconds", 120))
         self.pending_orders = []
@@ -160,6 +161,8 @@ class OrdersManager:
                     deadline=deadline,
                     release_time=int(it.get("release_time", 0)),
                 )
+                if order.id in skip_ids:
+                    continue  # no poner en pendientes/cola, ya está en el inventario
                 orders_objs.append(order)
 
                 # Generar puertas si corresponde
@@ -182,6 +185,8 @@ class OrdersManager:
         self._orders_queue = []
         elapsed = 0.0  # el reparto por tiempo se hace en release_orders()
         for i, order in enumerate(orders_objs):
+            if order.id in skip_ids:
+                continue
             unlock_at = i * float(self.order_release_interval)
             if unlock_at <= elapsed:
                 self.pending_orders.append(order)

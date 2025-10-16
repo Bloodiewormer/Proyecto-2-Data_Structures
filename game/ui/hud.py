@@ -18,12 +18,25 @@ class HUDRenderer:
 
     # --------- Public ---------
     def draw(self, game):
+        # Solo debug: mostrar FPS, rays y métricas de rendimiento
         if getattr(game, "debug", False):
+            # FPS / Rays
             dt_list = game.frame_times[-60:] if hasattr(game, "frame_times") else []
             avg_dt = (sum(dt_list) / len(dt_list)) if dt_list else 0.0
             avg_fps = (1.0 / avg_dt) if avg_dt > 0 else 0.0
             rays = getattr(game.renderer, "num_rays", 0)
             arcade.draw_text(f"FPS: {avg_fps:.1f} | Rays: {rays}", 10, game.height - 20, arcade.color.YELLOW, 12)
+
+            # Perf renderer y minimapa
+            rx = 10
+            ry = game.height - 40
+            if getattr(game, "renderer", None) and hasattr(game.renderer, "get_perf_snapshot"):
+                snap = game.renderer.get_perf_snapshot()
+                arcade.draw_text(f"World ms - clouds:{snap['clouds_ms']:.2f} floor:{snap['floor_ms']:.2f} walls:{snap['walls_ms']:.2f} total:{snap['total_ms']:.2f}",
+                                 rx, ry - 16, arcade.color.LIGHT_GRAY, 10)
+            if getattr(game, "minimap", None) and hasattr(game.minimap, "get_perf_snapshot"):
+                ms = game.minimap.get_perf_snapshot().get("render_ms", 0.0)
+                arcade.draw_text(f"Minimap ms:{ms:.2f}", rx, ry - 32, arcade.color.LIGHT_GRAY, 10)
 
         self._last_game = game
         self.ensure_inventory_panel(game)
@@ -81,8 +94,7 @@ class HUDRenderer:
         arcade.draw_text(" O - Pedidos", game.width - 60, _y - 2 * _h, arcade.color.WHITE, 12, anchor_x="center")
         arcade.draw_text(" U - Devolverse", game.width - 60, _y - 3 * _h, arcade.color.WHITE, 12, anchor_x="center")
 
-
-
+        self._draw_pending_bell(game)
 
     # --------- Private (helpers) ---------
     def _draw_earnings_progress_top(self, game, earnings: float, goal_earnings: float):
@@ -409,3 +421,31 @@ class HUDRenderer:
             self.ensure_inventory_panel(game)
         if self._inv_panel:
             self._inv_panel.update(delta_time)
+
+    def _draw_pending_bell(self, game):
+        # Mostrar solo si el panel de inventario está cerrado
+        inv_panel_open = getattr(self, "_inv_panel", None) and self._inv_panel.is_open
+        if inv_panel_open:
+            return
+        pending = len(getattr(game, "pending_orders", []) or [])
+        # Posición cerca del panel de inventario (margen superior derecho)
+        box_w, box_h = 48, 48
+        box_x = game.width - box_w - 70
+        box_y = game.height - box_h - 50
+        # Fondo café
+        arcade.draw_lrbt_rectangle_filled(box_x, box_x + box_w, box_y, box_y + box_h, (161, 130, 98, 220))
+        arcade.draw_lrbt_rectangle_outline(box_x, box_x + box_w, box_y, box_y + box_h, arcade.color.WHITE, 2)
+        # Campana simple (gris/blanca)
+        cx = box_x + box_w // 2
+        cy = box_y + box_h // 2
+        # cuerpo
+        arcade.draw_triangle_filled(cx - 10, cy - 4, cx + 10, cy - 4, cx, cy + 10, arcade.color.LIGHT_GRAY)
+        # badajo
+        arcade.draw_circle_filled(cx, cy - 8, 3, arcade.color.SILVER)
+        # Badge rojo con número
+        if pending > 0:
+            badge_r = 10
+            bx = box_x + box_w - badge_r + 2
+            by = box_y + box_h - badge_r + 2
+            arcade.draw_circle_filled(bx, by, badge_r, arcade.color.RED)
+            arcade.draw_text(str(pending), bx, by - 6, arcade.color.WHITE, 12, anchor_x="center")

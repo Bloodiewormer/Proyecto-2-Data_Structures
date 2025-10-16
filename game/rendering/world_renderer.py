@@ -349,6 +349,20 @@ class RayCastRenderer:
             self._perf_accum = {"clouds": 0.0, "walls": 0.0, "floor": 0.0, "frames": 0}
             self._last_perf_report = now
 
+    def get_perf_snapshot(self):
+        f = max(1, self._perf_accum.get("frames", 0))
+        if f <= 0:
+            return {"clouds_ms": 0.0, "floor_ms": 0.0, "walls_ms": 0.0, "total_ms": 0.0}
+        clouds_ms = (self._perf_accum["clouds"] / f) * 1000.0
+        floor_ms = (self._perf_accum["floor"] / f) * 1000.0
+        walls_ms = (self._perf_accum["walls"] / f) * 1000.0
+        return {
+            "clouds_ms": clouds_ms,
+            "floor_ms": floor_ms,
+            "walls_ms": walls_ms,
+            "total_ms": clouds_ms + floor_ms + walls_ms,
+        }
+
     # ---------- Content ----------
     def generate_door_at(self, tile_x: int, tile_y: int):
         if not self.city:

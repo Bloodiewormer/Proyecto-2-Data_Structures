@@ -358,6 +358,12 @@ class CourierGame(arcade.Window):
         if self.orders_window:
             self.orders_window.update_animation(delta_time)
 
+        # Sincronizar flags de debug a los renderers
+        if getattr(self, "renderer", None) and hasattr(self.renderer, "debug"):
+            self.renderer.debug = bool(self.debug)
+        if getattr(self, "minimap", None) and hasattr(self.minimap, "set_debug"):
+            self.minimap.set_debug(bool(self.debug))
+
     def on_key_press(self, symbol: int, modifiers: int):
         if symbol == arcade.key.ESCAPE:
             if self.state_manager.current_state == GameState.PAUSED and self.game_over_active and self.score_screen:
