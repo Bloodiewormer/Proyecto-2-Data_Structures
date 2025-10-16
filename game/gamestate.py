@@ -1,10 +1,6 @@
 import arcade
 from enum import Enum
 
-# Importar menús desde UI
-from game.ui.menus.main_menu import MainMenu
-from game.ui.menus.pause_menu import PauseMenu
-
 class GameState(Enum):
     MAIN_MENU = "main_menu"
     PLAYING = "playing"
@@ -50,14 +46,18 @@ class GameStateManager:
         print("Menú de settings inicializado")
 
     def _show_main_menu(self):
+        # Import perezoso para evitar ciclo de imports
         if not self.main_menu:
+            from game.ui.menus.main_menu import MainMenu
             self.main_menu = MainMenu(self.game)
 
     def _resume_game(self):
         pass
 
     def _show_pause_menu(self):
+        # Import perezoso para evitar ciclo de imports
         if not self.pause_menu:
+            from game.ui.menus.pause_menu import PauseMenu
             self.pause_menu = PauseMenu(self.game)
 
     def _show_game_over(self):

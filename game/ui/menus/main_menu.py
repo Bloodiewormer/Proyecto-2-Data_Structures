@@ -132,6 +132,8 @@ class MainMenu:
             arcade.exit()
 
     def _execute_option(self):
+
+
         if self.selected_option in getattr(self, "disabled_options", []):
             return
 
