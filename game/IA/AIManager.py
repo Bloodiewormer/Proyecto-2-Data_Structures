@@ -1,6 +1,6 @@
 # game/ai/ai_manager.py
 from typing import List, Optional
-from game.entities.AIPlayer import  AIPlayer
+from game.entities.ai_player import AIPlayer
 
 
 class AIManager:
@@ -13,7 +13,7 @@ class AIManager:
         self.game = game
         self.ai_players: List[AIPlayer] = []
 
-    def add_ai_player(self, difficulty: str = "easy") -> AIPlayer:
+    def add_ai_player(self, difficulty: str = "easy") -> Optional[AIPlayer]:
         """Agregar nuevo jugador IA"""
         if not self.game.city:
             return None

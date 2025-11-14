@@ -25,8 +25,12 @@ from game.core.orders import Order
 from game.ui.orders_window import ordersWindow
 from game.core.score_manager import ScoreManager
 from game.ui.score_screen import ScoreScreen
-from game.entities.AIPlayer import AIPlayer
-from game.IA.AIManager import AIManager
+from game.entities.ai_player import AIPlayer
+# Nota: este juego tiene también un AIManager opcional en game/IA; mantenemos compatibilidad si existe
+try:
+    from game.IA.AIManager import AIManager
+except Exception:
+    AIManager = None
 
 
 class CourierGame(arcade.Window):
@@ -41,8 +45,6 @@ class CourierGame(arcade.Window):
         self.state_manager = GameStateManager(self)
         self.save_manager = SaveManager(app_config)
         self.audio_manager = AudioManager(app_config)
-        self.ai_players: list[AIPlayer] = []
-        self.ai_manager = AIManager(self)
 
         self.backward_factor = 0.3
         self.last_move_scale = 0.0
@@ -138,6 +140,11 @@ class CourierGame(arcade.Window):
         self.orders_manager = OrdersManager()
         self.delivery_system = DeliverySystem()
 
+        # Sistema de IA
+        self.ai_players: list[AIPlayer] = []
+        self.ai_enabled = False
+        self.ai_difficulty = "easy"
+
         self._undo_timer_snapshots: list[tuple[float, float]] = []  # (total_play_time, time_remaining)
 
     def setup(self):
@@ -153,19 +160,7 @@ class CourierGame(arcade.Window):
             # Reemplaza _setup_orders por OrdersManager
             self.orders_manager.setup_orders(self.api_client, self.files_conf, self.app_config, self.city, self.renderer, self.debug)
             self.pending_orders = self.orders_manager.pending_orders
-            # Agregar IA según configuración
-            ai_config = self.app_config.get("ai", {})
-            if ai_config.get("enabled", False):
-                difficulty = ai_config.get("difficulty", "easy")
-
-                # Asegurarse de que exista el manager antes de usarlo
-                if hasattr(self, 'ai_manager') and self.ai_manager:
-                    # Limpiar cualquier IA previa y crear según la configuración
-                    try:
-                        self.ai_manager.clear_all()
-                    except Exception:
-                        pass
-                    self.ai_manager.add_ai_player(difficulty)
+            # (IA) la inicialización se realiza después de cambiar el estado a PLAYING
 
             # Timer centralizado
             self.timer = GameTimer(time_limit_seconds=self.time_limit)
@@ -180,6 +175,15 @@ class CourierGame(arcade.Window):
                 "level": 1
             }
             self.state_manager.change_state(GameState.PLAYING)
+            # Inicializar IA según configuración al comenzar la partida
+            try:
+                ai_config = self.app_config.get("ai", {})
+                self.ai_enabled = ai_config.get("enabled", False)
+                self.ai_difficulty = ai_config.get("difficulty", "easy")
+                if self.ai_enabled:
+                    self._add_ai_player(self.ai_difficulty)
+            except Exception:
+                pass
             game_music = self.app_config.get("audio", {}).get("game_music")
             if game_music:
                 self.audio_manager.play_music(game_music, loop=True)
@@ -201,6 +205,11 @@ class CourierGame(arcade.Window):
 
     def return_to_main_menu(self):
         self.player = None
+        # Remover IA activas cuando volvemos al menú principal
+        try:
+            self._remove_all_ai_players()
+        except Exception:
+            pass
         self.city = None
         self.renderer = None
         self.weather_system = None
@@ -235,6 +244,11 @@ class CourierGame(arcade.Window):
         self.renderer = RayCastRenderer(self.city, self.app_config)
         # Initialize UI helpers dependent on city
         self.minimap = MinimapRenderer(self.city, self.app_config)
+        # Proveer referencia al objeto game para que el minimapa pueda acceder a managers (ej. ai_manager)
+        try:
+            self.minimap.game = self
+        except Exception:
+            pass
 
         t0 = time.perf_counter()
         self.weather_system = WeatherSystem(self.api_client, self.app_config)
@@ -252,8 +266,64 @@ class CourierGame(arcade.Window):
             self.renderer.debug = bool(self.app_config.get("debug", False))
 
         self.minimap = MinimapRenderer(self.city, self.app_config)
+        # Proveer referencia al objeto game para que el minimapa pueda acceder a managers (ej. ai_manager)
+        try:
+            self.minimap.game = self
+        except Exception:
+            pass
         if hasattr(self.minimap, "set_debug"):
             self.minimap.set_debug(bool(self.app_config.get("debug", False)))
+
+    # ========== MÉTODOS AUXILIARES DE IA ==========
+    def _add_ai_player(self, difficulty: str = "easy"):
+        """Agregar jugador IA"""
+        if not self.city:
+            return
+
+        spawn_x, spawn_y = self.city.get_spawn_position()
+        # Offset para no sobreponerse con jugador humano
+        spawn_x += 2
+        spawn_y += 2
+
+        player_config = self.app_config.get("player", {})
+        ai = AIPlayer(spawn_x, spawn_y, player_config, difficulty)
+        self.ai_players.append(ai)
+
+        if self.debug:
+            print(f"IA agregada - Dificultad: {difficulty}")
+
+    def _remove_all_ai_players(self):
+        """Remover todos los jugadores IA"""
+        self.ai_players.clear()
+
+    def _update_ai_players(self, delta_time: float):
+        """Actualizar todos los jugadores IA"""
+        for ai in list(self.ai_players):
+            try:
+                ai.update_ai(delta_time, self)
+            except Exception:
+                pass
+
+            # Procesar pickups y deliveries
+            try:
+                self.delivery_system.process(
+                    ai,
+                    getattr(self, "pickup_radius", 1.5),
+                    lambda msg: None  # IA no muestra notificaciones
+                )
+            except Exception:
+                pass
+
+    def restart_ai_with_difficulty(self, difficulty: str):
+        """Reiniciar IA con nueva dificultad (se aplica en próxima partida)"""
+        self.ai_difficulty = difficulty
+        self.app_config.setdefault("ai", {})["difficulty"] = difficulty
+
+        # Si hay partida activa, reiniciar IA
+        if self.state_manager.current_state == GameState.PLAYING:
+            self._remove_all_ai_players()
+            if self.ai_enabled:
+                self._add_ai_player(difficulty)
 
     def show_notification(self, message: str, duration: float = 2.0):
         # Delegate to NotificationManager
@@ -416,6 +486,10 @@ class CourierGame(arcade.Window):
                             self.show_notification(f"Pedido {o.id} expiró (-4 reputación)")
         except Exception:
             pass
+
+        # Actualizar IA (si está habilitada)
+        if self.ai_enabled:
+            self._update_ai_players(delta_time)
 
     def on_key_press(self, symbol: int, modifiers: int):
         if symbol == arcade.key.ESCAPE:

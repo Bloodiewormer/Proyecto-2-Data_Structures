@@ -18,7 +18,7 @@ class MinimapRenderer:
         self.col_park = tuple(colors.get("park", (144, 238, 144)))
         self.col_player = tuple(colors.get("player", (255, 255, 0)))
 
-        self._minimap_shapes: Optional[arcade.ShapeElementList] = None
+        self._minimap_shapes: Optional[object] = None
         self._minimap_cache_key = None
 
         # Debug/perf
@@ -56,9 +56,14 @@ class MinimapRenderer:
                     c = self.col_park
                 else:
                     c = self.col_street
+                # Asegurar que el color tenga canal alpha (RGBA) para evitar advertencias
+                try:
+                    c4 = (c[0], c[1], c[2], 255) if len(c) == 3 else c
+                except Exception:
+                    c4 = (105, 105, 105, 255)
                 cx = x + (col + 0.5) * scale_x
                 cy = y + (row + 0.5) * scale_y
-                shapes.append(create_rect(cx, cy, scale_x, scale_y, c))
+                shapes.append(create_rect(cx, cy, scale_x, scale_y, c4))
 
         border = arcade.shape_list.create_rectangle_outline(
             x + size / 2, y + size / 2, size, size, arcade.color.WHITE, border_width=2
@@ -106,6 +111,34 @@ class MinimapRenderer:
         fx = math.cos(player.angle)
         fy = math.sin(player.angle)
         arcade.draw_line(px, py, px + fx * 10, py + fy * 10, self.col_player, 2)
+
+        # Dibujar jugadores IA en el minimapa (obtener la ventana de arcade)
+        try:
+            game = arcade.get_window()
+            if hasattr(game, 'ai_players') and game.ai_players:
+                for ai in game.ai_players:
+                    ai_x = x + (ai.x + 0.5) * scale_x
+                    ai_y = y + (ai.y + 0.5) * scale_y
+
+                    # Color según dificultad
+                    diff = getattr(ai, 'difficulty', 'easy')
+                    if diff == 'easy':
+                        color = (100, 255, 100)
+                    elif diff == 'medium':
+                        color = (255, 165, 0)
+                    else:
+                        color = (255, 50, 50)
+
+                    r = max(2, int(min(scale_x, scale_y) * 0.3))
+                    arcade.draw_circle_filled(ai_x, ai_y, r, color)
+
+                    # Flecha de dirección
+                    fx = math.cos(getattr(ai, 'angle', 0.0))
+                    fy = math.sin(getattr(ai, 'angle', 0.0))
+                    arcade.draw_line(ai_x, ai_y, ai_x + fx * 8, ai_y + fy * 8, color, 2)
+        except Exception:
+            # No bloquear el render si algo falla al dibujar las IA
+            pass
 
         t1 = time.perf_counter()
         self._perf_accum["render"] += (t1 - t0)

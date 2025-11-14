@@ -87,6 +87,10 @@
         "burst_duration_max": 60,
         "enable_weather_effects": true,
         "enable_visual_effects": true
+    },
+    "ai": {
+        "enabled": true,
+        "difficulty": "medium"
     }
 
 }

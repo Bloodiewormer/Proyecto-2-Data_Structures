@@ -1,4 +1,3 @@
-# game/entities/ai_player.py
 import math
 import random
 import heapq
@@ -256,8 +255,6 @@ class AIPlayer(Player):
         - Costo base por tile (surface_weight)
         - Penalización por clima
         """
-        import heapq
-
         # Factor de clima
         weather_cost = 1.0
         if weather_system:
@@ -312,5 +309,4 @@ class AIPlayer(Player):
         path.reverse()
 
         return path
-
 

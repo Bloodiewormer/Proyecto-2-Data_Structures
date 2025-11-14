@@ -12,6 +12,7 @@ class SettingsMenu:
             "Resolución",
             "Rayos (Calidad)",
             "Volumen",
+            "Dificultad IA",
             "Modo Debug",
             "Aplicar Cambios",
             "Volver"
@@ -31,6 +32,20 @@ class SettingsMenu:
 
         # Debug
         self.debug_enabled = bool(game_instance.app_config.get("debug", False))
+
+        # Configuración de IA
+        self.ai_enabled = bool(game_instance.app_config.get("ai", {}).get("enabled", False))
+        self.ai_difficulties = ["Desactivada", "Fácil", "Media", "Difícil"]
+        self.ai_difficulty_values = ["disabled", "easy", "medium", "hard"]
+        # Determinar índice actual
+        if not self.ai_enabled:
+            self.current_ai_difficulty_index = 0  # Desactivada
+        else:
+            current_diff = game_instance.app_config.get("ai", {}).get("difficulty", "easy")
+            try:
+                self.current_ai_difficulty_index = self.ai_difficulty_values.index(current_diff)
+            except ValueError:
+                self.current_ai_difficulty_index = 2  # Default: Media
 
         # Mensaje temporal
         self.message = ""
@@ -83,6 +98,19 @@ class SettingsMenu:
         except Exception as e:
             print(f"Error al cargar configuración actual: {e}")
             # Usar valores por defecto si hay algún error
+
+        # Cargar configuración de IA
+        try:
+            ai_config = self.game.app_config.get("ai", {})
+            self.ai_enabled = bool(ai_config.get("enabled", False))
+            if not self.ai_enabled:
+                self.current_ai_difficulty_index = 0
+            else:
+                current_diff = ai_config.get("difficulty", "easy")
+                if current_diff in self.ai_difficulty_values:
+                    self.current_ai_difficulty_index = self.ai_difficulty_values.index(current_diff)
+        except Exception as e:
+            print(f"Error al cargar configuración de IA: {e}")
 
     def draw(self):
         """Dibujar menú de configuraciones"""
@@ -151,6 +179,9 @@ class SettingsMenu:
                 text = f"{prefix}{option}: {value}{suffix}"
             elif option == "Volumen":
                 value = f"{self.volume_levels[self.current_volume_index]}%"
+                text = f"{prefix}{option}: {value}{suffix}"
+            elif option == "Dificultad IA":
+                value = self.ai_difficulties[self.current_ai_difficulty_index]
                 text = f"{prefix}{option}: {value}{suffix}"
             else:
                 text = f"{prefix}{option}{suffix}"
@@ -223,6 +254,9 @@ class SettingsMenu:
         elif option == "Volumen":
             self.current_volume_index = (self.current_volume_index + direction) % len(self.volume_levels)
 
+        elif option == "Dificultad IA":
+            self.current_ai_difficulty_index = (self.current_ai_difficulty_index + direction) % len(self.ai_difficulties)
+
     def _execute_option(self):
         """Ejecutar opción seleccionada"""
         option = self.options[self.selected_option]
@@ -251,6 +285,27 @@ class SettingsMenu:
             # Aplicar debug
             self.game.debug = self.debug_enabled
             self.game.app_config["debug"] = self.debug_enabled
+
+            # Aplicar configuración de IA
+            ai_value = self.ai_difficulty_values[self.current_ai_difficulty_index]
+            if ai_value == "disabled":
+                self.game.ai_enabled = False
+                self.game.app_config.setdefault("ai", {})["enabled"] = False
+                # Remover IA activas si las hay
+                try:
+                    self.game._remove_all_ai_players()
+                except Exception:
+                    pass
+            else:
+                self.game.ai_enabled = True
+                self.game.app_config.setdefault("ai", {})["enabled"] = True
+                self.game.app_config["ai"]["difficulty"] = ai_value
+                # Si hay partida en curso, reiniciar IA
+                if hasattr(self.game, 'restart_ai_with_difficulty'):
+                    try:
+                        self.game.restart_ai_with_difficulty(ai_value)
+                    except Exception:
+                        pass
 
             # Actualizar configuración en memoria
             self.game.app_config["display"]["width"] = width
