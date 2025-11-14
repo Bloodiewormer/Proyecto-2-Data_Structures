@@ -25,6 +25,8 @@ from game.core.orders import Order
 from game.ui.orders_window import ordersWindow
 from game.core.score_manager import ScoreManager
 from game.ui.score_screen import ScoreScreen
+from game.entities.AIPlayer import AIPlayer
+from game.IA.AIManager import AIManager
 
 
 class CourierGame(arcade.Window):
@@ -39,6 +41,8 @@ class CourierGame(arcade.Window):
         self.state_manager = GameStateManager(self)
         self.save_manager = SaveManager(app_config)
         self.audio_manager = AudioManager(app_config)
+        self.ai_players: list[AIPlayer] = []
+        self.ai_manager = AIManager(self)
 
         self.backward_factor = 0.3
         self.last_move_scale = 0.0
@@ -149,6 +153,19 @@ class CourierGame(arcade.Window):
             # Reemplaza _setup_orders por OrdersManager
             self.orders_manager.setup_orders(self.api_client, self.files_conf, self.app_config, self.city, self.renderer, self.debug)
             self.pending_orders = self.orders_manager.pending_orders
+            # Agregar IA según configuración
+            ai_config = self.app_config.get("ai", {})
+            if ai_config.get("enabled", False):
+                difficulty = ai_config.get("difficulty", "easy")
+
+                # Asegurarse de que exista el manager antes de usarlo
+                if hasattr(self, 'ai_manager') and self.ai_manager:
+                    # Limpiar cualquier IA previa y crear según la configuración
+                    try:
+                        self.ai_manager.clear_all()
+                    except Exception:
+                        pass
+                    self.ai_manager.add_ai_player(difficulty)
 
             # Timer centralizado
             self.timer = GameTimer(time_limit_seconds=self.time_limit)
@@ -364,6 +381,13 @@ class CourierGame(arcade.Window):
 
         # Actualización del jugador (estados internos)
         self.player.update(delta_time)
+
+        # Actualizar jugadores IA (si existe el manager)
+        if hasattr(self, 'ai_manager') and self.ai_manager:
+            try:
+                self.ai_manager.update(delta_time)
+            except Exception:
+                pass
 
         # Procesar recolección y entrega según la posición actual
         self.delivery_system.process(self.player, getattr(self, "pickup_radius", 1.5), self.show_notification)
