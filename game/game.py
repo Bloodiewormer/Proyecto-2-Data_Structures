@@ -25,8 +25,11 @@ from game.core.orders import Order
 from game.ui.orders_window import ordersWindow
 from game.core.score_manager import ScoreManager
 from game.ui.score_screen import ScoreScreen
+
 from game.entities.ai_player import AIPlayer
-# Nota: este juego tiene también un AIManager opcional en game/IA; mantenemos compatibilidad si existe
+
+from game.IA.strategies.strategies import EasyStrategy, MediumStrategy, HardStrategy
+
 try:
     from game.IA.AIManager import AIManager
 except Exception:
@@ -64,7 +67,7 @@ class CourierGame(arcade.Window):
         self.player: Optional[Player] = None
         self.renderer: Optional[RayCastRenderer] = None
         self.weather_system: Optional[WeatherSystem] = None
-        # UI renderers and input
+
         self.minimap: Optional[MinimapRenderer] = None
         self.hud = HUDRenderer(self.app_config, debug=bool(self.app_config.get("debug", False)))
         self.notifications = NotificationManager()
@@ -76,7 +79,6 @@ class CourierGame(arcade.Window):
         self.time_limit = game_config.get("time_limit_minutes", 15) * 60
         self.time_remaining = self.time_limit
 
-        # Timer central del juego
         self.timer = GameTimer(time_limit_seconds=self.time_limit)
 
         self.pickup_radius = self.app_config.get("game", {}).get("pickup_radius", 1.5)
@@ -89,7 +91,6 @@ class CourierGame(arcade.Window):
         self.displayed_speed = 0.0
         self.speed_smoothing = 3.0
 
-        # Instancias core adicionales: controlador de jugador y reglas de juego
         self.player_controller = PlayerController(
             backward_factor=self.backward_factor,
             speed_smoothing=self.speed_smoothing
@@ -104,7 +105,7 @@ class CourierGame(arcade.Window):
 
         self.set_update_rate(1 / 60)
 
-        # HUD legacy texts (kept for compatibility; HUDRenderer draws the HUD now)
+        # Textos HUD legacy (HUDRenderer ya maneja, se mantienen por compatibilidad)
         self.hud_fps = arcade.Text("", 10, self.height - 20, arcade.color.WHITE, 12)
         self.hud_stats = arcade.Text("", 10, self.height - 40, arcade.color.WHITE, 12)
         self.hud_performance = arcade.Text("", 10, self.height - 60, arcade.color.YELLOW, 10)
@@ -112,7 +113,6 @@ class CourierGame(arcade.Window):
         self.hud_weather = arcade.Text("", 10, self.height - 100, arcade.color.WHITE, 12)
         self.hud_time = arcade.Text("", 10, self.height - 120, arcade.color.WHITE, 14)
 
-        # Legacy notification fields (managed by NotificationManager now)
         self.notification_message = ""
         self.notification_timer = 0
 
@@ -121,7 +121,6 @@ class CourierGame(arcade.Window):
 
         self.debug = bool(self.app_config.get("debug", False))
 
-        # Flujos de guardado y score
         self.save_flow = SaveFlow(self.app_config, debug=self.debug)
         self.score_flow = ScoreFlow(self.files_conf)
 
@@ -136,19 +135,21 @@ class CourierGame(arcade.Window):
         self._orders_queue: list[tuple[float, Order]] = []
         self.pending_orders: list[Order] = []
 
-        # Sistemas core
         self.orders_manager = OrdersManager()
         self.delivery_system = DeliverySystem()
 
-        # Sistema de IA
+        # IA
         self.ai_players: list[AIPlayer] = []
-        self.ai_enabled = False
-        self.ai_difficulty = "easy"
+        self.ai_enabled: bool = False
+        self.ai_difficulty: str = "easy"
+        self._ai_medium_conf = {
+            "lookahead_depth": int(self.app_config.get("ai", {}).get("medium_lookahead", 2)),
+            "climate_weight": float(self.app_config.get("ai", {}).get("medium_climate_weight", 0.5))
+        }
 
-        self._undo_timer_snapshots: list[tuple[float, float]] = []  # (total_play_time, time_remaining)
+        self._undo_timer_snapshots: list[tuple[float, float]] = []
 
     def setup(self):
-
         self.state_manager.change_state(GameState.MAIN_MENU)
         menu_music = self.app_config.get("audio", {}).get("menu_music")
         if menu_music:
@@ -157,12 +158,9 @@ class CourierGame(arcade.Window):
     def start_new_game(self):
         try:
             self._initialize_game_systems()
-            # Reemplaza _setup_orders por OrdersManager
             self.orders_manager.setup_orders(self.api_client, self.files_conf, self.app_config, self.city, self.renderer, self.debug)
             self.pending_orders = self.orders_manager.pending_orders
-            # (IA) la inicialización se realiza después de cambiar el estado a PLAYING
 
-            # Timer centralizado
             self.timer = GameTimer(time_limit_seconds=self.time_limit)
             self.timer.start_new()
             self.total_play_time = 0.0
@@ -175,15 +173,18 @@ class CourierGame(arcade.Window):
                 "level": 1
             }
             self.state_manager.change_state(GameState.PLAYING)
-            # Inicializar IA según configuración al comenzar la partida
+
+            # IA
             try:
-                ai_config = self.app_config.get("ai", {})
-                self.ai_enabled = ai_config.get("enabled", False)
-                self.ai_difficulty = ai_config.get("difficulty", "easy")
+                ai_conf = self.app_config.get("ai", {}) or {}
+                self.ai_enabled = bool(ai_conf.get("enabled", False))
+                self.ai_difficulty = str(ai_conf.get("difficulty", "easy")).lower().strip()
                 if self.ai_enabled:
                     self._add_ai_player(self.ai_difficulty)
-            except Exception:
-                pass
+            except Exception as e:
+                if self.debug:
+                    print(f"Error inicializando IA: {e}")
+
             game_music = self.app_config.get("audio", {}).get("game_music")
             if game_music:
                 self.audio_manager.play_music(game_music, loop=True)
@@ -205,7 +206,6 @@ class CourierGame(arcade.Window):
 
     def return_to_main_menu(self):
         self.player = None
-        # Remover IA activas cuando volvemos al menú principal
         try:
             self._remove_all_ai_players()
         except Exception:
@@ -237,14 +237,14 @@ class CourierGame(arcade.Window):
         self.api_client = APIClient(api_conf)
         t1 = time.perf_counter()
         self._perf_accum_game["api"] += (t1 - t0)
+
         self.city = CityMap(self.api_client, self.app_config)
         self.city.load_map()
         sx, sy = self.city.get_spawn_position()
         self.player = Player(sx, sy, self.app_config.get("player", {}))
         self.renderer = RayCastRenderer(self.city, self.app_config)
-        # Initialize UI helpers dependent on city
+
         self.minimap = MinimapRenderer(self.city, self.app_config)
-        # Proveer referencia al objeto game para que el minimapa pueda acceder a managers (ej. ai_manager)
         try:
             self.minimap.game = self
         except Exception:
@@ -258,75 +258,79 @@ class CourierGame(arcade.Window):
         self.orders_window = ordersWindow(self)
         if hasattr(self, 'width') and hasattr(self, 'height'):
             self.orders_window.ensure_initial_position(self.width, self.height)
-        # Conectar ventana de pedidos al manager
         self.orders_manager.attach_window(self.orders_window)
 
-        self.renderer = RayCastRenderer(self.city, self.app_config)
         if hasattr(self.renderer, "debug"):
             self.renderer.debug = bool(self.app_config.get("debug", False))
 
-        self.minimap = MinimapRenderer(self.city, self.app_config)
-        # Proveer referencia al objeto game para que el minimapa pueda acceder a managers (ej. ai_manager)
-        try:
-            self.minimap.game = self
-        except Exception:
-            pass
         if hasattr(self.minimap, "set_debug"):
             self.minimap.set_debug(bool(self.app_config.get("debug", False)))
 
-    # ========== MÉTODOS AUXILIARES DE IA ==========
+    # ================= IA =================
+
+    def _build_strategy_for_difficulty(self, difficulty: str):
+        d = (difficulty or "easy").lower().strip()
+        if d == "easy":
+            return EasyStrategy(self)
+        if d == "medium":
+            return MediumStrategy(
+                self,
+                lookahead_depth=self._ai_medium_conf.get("lookahead_depth", 2),
+                climate_weight=self._ai_medium_conf.get("climate_weight", 0.5),
+            )
+        if d == "hard":
+            return HardStrategy(self)
+        return EasyStrategy(self)
+
     def _add_ai_player(self, difficulty: str = "easy"):
-        """Agregar jugador IA"""
         if not self.city:
             return
-
         spawn_x, spawn_y = self.city.get_spawn_position()
-        # Offset para no sobreponerse con jugador humano
         spawn_x += 2
         spawn_y += 2
-
-        player_config = self.app_config.get("player", {})
-        ai = AIPlayer(spawn_x, spawn_y, player_config, difficulty)
+        strategy = self._build_strategy_for_difficulty(difficulty)
+        # Pasamos difficulty también para registro interno
+        ai = AIPlayer(world=self, x=spawn_x, y=spawn_y, difficulty=difficulty, strategy=strategy)
         self.ai_players.append(ai)
-
         if self.debug:
-            print(f"IA agregada - Dificultad: {difficulty}")
+            print(f"[AI] Player IA agregado (dificultad={difficulty}) en ({spawn_x},{spawn_y})")
 
     def _remove_all_ai_players(self):
-        """Remover todos los jugadores IA"""
+        if self.debug and self.ai_players:
+            print(f"[AI] Removiendo {len(self.ai_players)} AIPlayer(s).")
         self.ai_players.clear()
 
     def _update_ai_players(self, delta_time: float):
-        """Actualizar todos los jugadores IA"""
-        for ai in list(self.ai_players):
-            try:
+        if not self.ai_enabled or not self.ai_players:
+            return
+        for ai in self.ai_players:
+            # Si prefieres cooldown usa update_ai; si quieres cada frame usa update_tick
+            if hasattr(ai, "update_ai"):
                 ai.update_ai(delta_time, self)
-            except Exception:
-                pass
-
-            # Procesar pickups y deliveries
+            else:
+                ai.update_tick(delta_time, self)
             try:
                 self.delivery_system.process(
                     ai,
                     getattr(self, "pickup_radius", 1.5),
-                    lambda msg: None  # IA no muestra notificaciones
+                    lambda msg: None
                 )
-            except Exception:
-                pass
+            except Exception as e:
+                if self.debug:
+                    print(f"[AI] Error en delivery_system para IA: {e}")
 
     def restart_ai_with_difficulty(self, difficulty: str):
-        """Reiniciar IA con nueva dificultad (se aplica en próxima partida)"""
-        self.ai_difficulty = difficulty
-        self.app_config.setdefault("ai", {})["difficulty"] = difficulty
+        self.ai_difficulty = str(difficulty).lower().strip()
+        self.app_config.setdefault("ai", {})["difficulty"] = self.ai_difficulty
+        if self.debug:
+            print(f"[AI] Reiniciando IA con dificultad: {self.ai_difficulty}")
+        self._remove_all_ai_players()
+        if self.ai_enabled:
+            self._add_ai_player(self.ai_difficulty)
 
-        # Si hay partida activa, reiniciar IA
-        if self.state_manager.current_state == GameState.PLAYING:
-            self._remove_all_ai_players()
-            if self.ai_enabled:
-                self._add_ai_player(difficulty)
+    # ================= Notificaciones / HUD =================
 
     def show_notification(self, message: str, duration: float = 2.0):
-        # Delegate to NotificationManager
         self.notifications.show(message, duration)
         if self.debug:
             f = max(1, self._perf_accum_game["frames"])
@@ -334,8 +338,9 @@ class CourierGame(arcade.Window):
             inv_ms = (self._perf_accum_game["inventory"] / f) * 1000
             orders_ms = (self._perf_accum_game["orders"] / f) * 1000
             weather_ms = (self._perf_accum_game["weather"] / f) * 1000
-            print(
-                f"[GamePerf] (setup) api={api_ms:.2f}ms inventory={inv_ms:.2f}ms orders={orders_ms:.2f}ms weather={weather_ms:.2f}ms")
+            print(f"[GamePerf] api={api_ms:.2f}ms inventory={inv_ms:.2f}ms orders={orders_ms:.2f}ms weather={weather_ms:.2f}ms")
+
+    # ================= Dibujo =================
 
     def on_draw(self):
         self.clear()
@@ -353,28 +358,20 @@ class CourierGame(arcade.Window):
         elif state == GameState.SETTINGS:
             if self.state_manager.settings_menu:
                 self.state_manager.settings_menu.draw()
-
         self._draw_notifications()
 
     def _draw_game(self):
         if not self.renderer or not self.player:
             return
         self.renderer.render_world(self.player, weather_system=self.weather_system)
-        # Minimapa: ahora delegado a MinimapRenderer
         if self.minimap and self.player:
             self.minimap.render(10, 10, 160, self.player)
-
-        # HUD: delegado al HUDRenderer
         self.hud.draw(self)
-
         if self.orders_window and (self.orders_window.is_open or self.orders_window.animation_progress > 0):
             self.orders_window.draw()
 
     def _draw_notifications(self):
-        # Dibujo de notificaciones
         self.notifications.draw(self)
-
-        # Contadores de rendimiento (debug)
         self._perf_accum_game["frames"] += 1
         now = time.perf_counter()
         if now - self._last_perf_report_game > 2.0 and self.debug:
@@ -387,6 +384,8 @@ class CourierGame(arcade.Window):
             self._perf_accum_game = {"api": 0.0, "inventory": 0.0, "orders": 0.0, "weather": 0.0, "frames": 0}
             self._last_perf_report_game = now
 
+    # ================= Undo Timer =================
+
     def _record_timer_undo_snapshot(self):
         self._undo_timer_snapshots.append((self.total_play_time, self.time_remaining))
 
@@ -398,8 +397,9 @@ class CourierGame(arcade.Window):
             if getattr(self, "timer", None):
                 self.timer.restore(play_time=tp, time_remaining=tr)
 
+    # ================= Update Loop =================
+
     def on_update(self, delta_time: float):
-        # Actualización de notificaciones
         self.notifications.update(delta_time)
 
         if self.state_manager.current_state == GameState.SETTINGS:
@@ -410,18 +410,14 @@ class CourierGame(arcade.Window):
         if self.state_manager.current_state != GameState.PLAYING:
             return
 
-        # Avance de tiempo centralizado
         self.timer.advance(delta_time)
         self.total_play_time = self.timer.total_play_time
         self.time_remaining = self.timer.time_remaining
 
-        # Guardar estados para undo (solo del jugador; sin snapshots del timer)
         if self.player:
             self.player.save_undo_state_if_needed(time.time())
 
-        # Reemplaza check local por reglas encapsuladas
         self.game_rules.check_and_handle(self)
-        # Liberación de pedidos centralizada
         self.orders_manager.release_orders(self.total_play_time, lambda msg: self.show_notification(msg))
         self.pending_orders = self.orders_manager.pending_orders
 
@@ -441,36 +437,30 @@ class CourierGame(arcade.Window):
         if not self.player or not self.city:
             return
 
-        # Movimiento y velocidad mostrada delegados
         self.displayed_speed = self.player_controller.update(
             self.player, self.city, delta_time,
             self._move_forward, self._move_backward,
             self._turn_left, self._turn_right
         )
 
-
-        # Actualización del jugador (estados internos)
         self.player.update(delta_time)
 
-        # Actualizar jugadores IA (si existe el manager)
         if hasattr(self, 'ai_manager') and self.ai_manager:
             try:
                 self.ai_manager.update(delta_time)
             except Exception:
                 pass
 
-        # Procesar recolección y entrega según la posición actual
         self.delivery_system.process(self.player, getattr(self, "pickup_radius", 1.5), self.show_notification)
 
         if self.orders_window:
             self.orders_window.update_animation(delta_time)
 
-        # Sincronizar flags de debug a los renderers
         if getattr(self, "renderer", None) and hasattr(self.renderer, "debug"):
             self.renderer.debug = bool(self.debug)
         if getattr(self, "minimap", None) and hasattr(self.minimap, "set_debug"):
             self.minimap.set_debug(bool(self.debug))
-        # Actualizar timers de pedidos aceptados y expirar
+
         try:
             if self.player and getattr(self.player, "inventory", None):
                 for o in list(self.player.inventory.orders):
@@ -478,18 +468,17 @@ class CourierGame(arcade.Window):
                         elapsed = max(0.0, self.total_play_time - o.accepted_at)
                         o.update_time_remaining(elapsed)
                         if o.is_expired():
-                            # Penalización simple por expiración
                             if hasattr(self.player, "cancel_order"):
                                 self.player.cancel_order()
-                            # Remover del inventario
                             self.player.remove_order_from_inventory(o.id)
                             self.show_notification(f"Pedido {o.id} expiró (-4 reputación)")
         except Exception:
             pass
 
-        # Actualizar IA (si está habilitada)
         if self.ai_enabled:
             self._update_ai_players(delta_time)
+
+    # ================= Input =================
 
     def on_key_press(self, symbol: int, modifiers: int):
         if symbol == arcade.key.ESCAPE:
@@ -510,21 +499,18 @@ class CourierGame(arcade.Window):
 
         state = self.state_manager.current_state
         if state == GameState.PLAYING:
-            # Delegar manejo de entrada al InputHandler
             if self.input_handler.on_key_press(symbol, modifiers):
                 return
-        elif state == GameState.MAIN_MENU:
-            if self.state_manager.main_menu:
-                self.state_manager.main_menu.handle_key_press(symbol, modifiers)
+        elif state == GameState.MAIN_MENU and self.state_manager.main_menu:
+            self.state_manager.main_menu.handle_key_press(symbol, modifiers)
         elif state == GameState.PAUSED:
             if self.game_over_active and self.score_screen:
                 if self.score_screen.handle_key_press(symbol, modifiers):
                     return
             if self.state_manager.pause_menu:
                 self.state_manager.pause_menu.handle_key_press(symbol, modifiers)
-        elif state == GameState.SETTINGS:
-            if self.state_manager.settings_menu:
-                self.state_manager.settings_menu.handle_key_press(symbol, modifiers)
+        elif state == GameState.SETTINGS and self.state_manager.settings_menu:
+            self.state_manager.settings_menu.handle_key_press(symbol, modifiers)
 
     def on_key_release(self, symbol: int, modifiers: int):
         if self.state_manager.current_state != GameState.PLAYING:
