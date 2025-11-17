@@ -132,6 +132,30 @@ class InputHandler:
                 game.weather_system.force_weather_change("cold")
                 game.show_notification("Clima forzado: Frío")
                 return True
+            elif symbol == arcade.key.F1:
+                game.show_ai_paths = not getattr(game, 'show_ai_paths', False)
+                status = "ON" if game.show_ai_paths else "OFF"
+                game.show_notification(f"Visualización de paths: {status}", 1.5)
+                return True
+            elif symbol == arcade.key.F2:
+                game.show_ai_targets = not getattr(game, 'show_ai_targets', False)
+                status = "ON" if game.show_ai_targets else "OFF"
+                game.show_notification(f"Visualización de targets: {status}", 1.5)
+                return True
+
+                # F3: Toggle estado de stamina
+            elif symbol == arcade.key.F3:
+                game.show_ai_stamina = not getattr(game, 'show_ai_stamina', False)
+                status = "ON" if game.show_ai_stamina else "OFF"
+                game.show_notification(f"Stamina de IA: {status}", 1.5)
+                return True
+
+                # F4: Pausar/reanudar solo IA (jugador sigue funcionando)
+            elif symbol == arcade.key.F4:
+                game.ai_paused = not getattr(game, 'ai_paused', False)
+                status = "PAUSADA" if game.ai_paused else "ACTIVA"
+                game.show_notification(f"IA {status}", 1.5)
+                return True
 
         return False
 

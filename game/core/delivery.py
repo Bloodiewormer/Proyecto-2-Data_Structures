@@ -4,7 +4,6 @@ import math
 class DeliverySystem:
     """
     Lógica de pickups y entregas basada en la posición del jugador.
-    Mantiene el mismo comportamiento y mensajes que en game.py.
     """
     def __init__(self):
         pass
@@ -50,7 +49,6 @@ class DeliverySystem:
                     player.update_reputation_for_delivery(order)
                     player.remove_order_from_inventory(order.id)
                     notify(f"Entregado {order.id}  +${payout:.0f}")
-                    # Actualizar peso del jugador después de entregar
                     try:
                         player.set_inventory_weight(player.inventory.current_weight)
                     except Exception:

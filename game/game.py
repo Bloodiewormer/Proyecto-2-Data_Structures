@@ -146,6 +146,12 @@ class CourierGame(arcade.Window):
             "lookahead_depth": int(self.app_config.get("ai", {}).get("medium_lookahead", 2)),
             "climate_weight": float(self.app_config.get("ai", {}).get("medium_climate_weight", 0.5))
         }
+        # Opciones de debug IA
+        self.show_ai_paths = False
+        self.show_ai_targets = False
+        self.show_ai_stamina = False
+        self.ai_paused = False
+        self._last_ai_log_time = 0.0
 
         self._undo_timer_snapshots: list[tuple[float, float]] = []
 
@@ -301,23 +307,47 @@ class CourierGame(arcade.Window):
         self.ai_players.clear()
 
     def _update_ai_players(self, delta_time: float):
+        """
+        Actualiza todos los jugadores IA.
+        VERSIÓN COMPLETA: Incluye timers, estados y pausa de debug.
+        """
         if not self.ai_enabled or not self.ai_players:
             return
+
+        # F4: Permitir pausar solo la IA
+        if getattr(self, 'ai_paused', False):
+            return
+
         for ai in self.ai_players:
-            # Si prefieres cooldown usa update_ai; si quieres cada frame usa update_tick
-            if hasattr(ai, "update_ai"):
-                ai.update_ai(delta_time, self)
-            else:
-                ai.update_tick(delta_time, self)
             try:
+                # 1. Actualizar timers de pedidos (CRÍTICO)
+                ai.update_order_timers(self.total_play_time)
+
+                # 2. Actualizar física y decisiones
+                if hasattr(ai, "update_ai"):
+                    ai.update_ai(delta_time, self)
+                else:
+                    ai.update_tick(delta_time, self)
+
+                # 3. Procesar pickups y deliveries
                 self.delivery_system.process(
                     ai,
                     getattr(self, "pickup_radius", 1.5),
-                    lambda msg: None
+                    lambda msg: None  # IA no muestra notificaciones al jugador
                 )
+
+                # 4. Verificar condiciones de derrota de la IA
+                if ai.reputation < 20:
+                    if self.debug:
+                        print(f"\n[IA] {ai.difficulty.upper()} eliminada por reputación crítica\n")
+                    self.ai_players.remove(ai)
+                    self.show_notification(f"IA {ai.difficulty} eliminada", 2.0)
+
             except Exception as e:
                 if self.debug:
-                    print(f"[AI] Error en delivery_system para IA: {e}")
+                    print(f"[AI] Error actualizando IA {ai.difficulty}: {e}")
+                    import traceback
+                    traceback.print_exc()
 
     def restart_ai_with_difficulty(self, difficulty: str):
         self.ai_difficulty = str(difficulty).lower().strip()
@@ -491,6 +521,9 @@ class CourierGame(arcade.Window):
         if self.ai_enabled:
             self._update_ai_players(delta_time)
 
+        if self.debug:
+            self._log_ai_stats()
+
     # ================= Input =================
 
     def on_key_press(self, symbol: int, modifiers: int):
@@ -544,3 +577,49 @@ class CourierGame(arcade.Window):
             if getattr(self, "audio_manager", None):
                 self.audio_manager.resume_music()
             self.show_notification("Reanudar")
+
+
+    #
+    def _log_ai_stats(self):
+        """
+        Loguea estadísticas de IA cada 5 segundos (solo en modo debug).
+        """
+        if not self.debug or not hasattr(self, 'ai_players'):
+            return
+
+        # Inicializar timer si no existe
+        if not hasattr(self, '_last_ai_log_time'):
+            self._last_ai_log_time = 0.0
+
+        # Loguear cada 5 segundos
+        if self.total_play_time - self._last_ai_log_time >= 5.0:
+            self._last_ai_log_time = self.total_play_time
+
+            print("\n" + "=" * 80)
+            print(f"[IA STATS] Tiempo de juego: {self.total_play_time:.1f}s")
+            print("=" * 80)
+
+            for i, ai in enumerate(self.ai_players, 1):
+                # Información básica
+                pos_str = f"({ai.x:.1f}, {ai.y:.1f})"
+                target_str = f"{ai.current_target}" if ai.current_target else "None"
+
+                # Estado del pedido actual
+                order_info = "Sin pedido"
+                if ai.inventory.orders:
+                    order = ai.inventory.orders[0]
+                    order_info = f"{order.id[:8]} ({order.status})"
+
+                # Color según stamina
+                stamina_icon = "🟢" if ai.stamina > 60 else "🟡" if ai.stamina > 30 else "🔴"
+
+                print(f"[IA-{i}] {ai.difficulty.upper():8s} | "
+                      f"Pos: {pos_str:15s} | "
+                      f"Target: {target_str:12s} | "
+                      f"{stamina_icon} Stamina: {ai.stamina:5.1f} | "
+                      f"Rep: {ai.reputation:5.1f} | "
+                      f"Pedidos: {order_info:20s} | "
+                      f"Ganancias: ${ai.earnings:.0f} | "
+                      f"Entregas: {ai.deliveries_completed}")
+
+            print("=" * 80 + "\n")

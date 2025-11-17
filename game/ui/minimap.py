@@ -150,3 +150,65 @@ class MinimapRenderer:
             print(f"[MinimapPerf] render={render_ms:.2f}ms")
             self._perf_accum = {"render": 0.0, "frames": 0}
             self._last_perf_report = now
+
+        # ========== DEBUGGING VISUAL DE IA ==========
+        try:
+            game = arcade.get_window()
+
+            if hasattr(game, 'debug') and game.debug and hasattr(game, 'ai_players'):
+                scale_x = size / max(1, self.city.width)
+                scale_y = size / max(1, self.city.height)
+
+                for ai in game.ai_players:
+                    # F1: Mostrar paths (líneas cyan)
+                    if getattr(game, 'show_ai_paths', False):
+                        if hasattr(ai, 'strategy'):
+                            # Para estrategias con planner (Hard)
+                            if hasattr(ai.strategy, 'planner') and ai.strategy.planner._path:
+                                path = ai.strategy.planner._path
+                                for i in range(len(path) - 1):
+                                    p1 = path[i]
+                                    p2 = path[i + 1]
+                                    x1 = x + (p1[0] + 0.5) * scale_x
+                                    y1 = y + (p1[1] + 0.5) * scale_y
+                                    x2 = x + (p2[0] + 0.5) * scale_x
+                                    y2 = y + (p2[1] + 0.5) * scale_y
+                                    arcade.draw_line(x1, y1, x2, y2, arcade.color.CYAN, 1)
+
+                    # F2: Mostrar targets (círculos rojos)
+                    if getattr(game, 'show_ai_targets', False):
+                        if ai.current_target:
+                            tx = x + (ai.current_target[0] + 0.5) * scale_x
+                            ty = y + (ai.current_target[1] + 0.5) * scale_y
+                            arcade.draw_circle_outline(tx, ty, 5, arcade.color.RED, 2)
+
+                            # Línea desde AI hasta target
+                            ai_x = x + (ai.x + 0.5) * scale_x
+                            ai_y = y + (ai.y + 0.5) * scale_y
+                            arcade.draw_line(ai_x, ai_y, tx, ty, arcade.color.YELLOW, 1)
+
+                    # F3: Mostrar stamina (texto sobre la IA)
+                    if getattr(game, 'show_ai_stamina', False):
+                        ai_x = x + (ai.x + 0.5) * scale_x
+                        ai_y = y + (ai.y + 0.5) * scale_y
+
+                        # Color según nivel de stamina
+                        if ai.stamina > 60:
+                            color = arcade.color.GREEN
+                        elif ai.stamina > 30:
+                            color = arcade.color.YELLOW
+                        else:
+                            color = arcade.color.RED
+
+                        state_text = f"{ai.difficulty[0].upper()} S:{ai.stamina:.0f}"
+                        arcade.draw_text(
+                            state_text,
+                            ai_x,
+                            ai_y + 12,
+                            color,
+                            8,
+                            anchor_x="center"
+                        )
+        except Exception as e:
+            if self.debug:
+                print(f"[Minimap] Error en debug visual: {e}")
