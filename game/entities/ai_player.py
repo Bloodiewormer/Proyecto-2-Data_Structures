@@ -86,6 +86,13 @@ class AIPlayer(Player):
         # Timestamp para renderer
         self._last_update_time = time.time()
 
+        if not hasattr(self, 'max_stamina'):
+            self.max_stamina = 100.0
+
+        # Cooldown para recuperación de stamina
+        self.stamina_recovery_cooldown = 0.5
+        self.time_since_stopped = 0.0
+
     def _build_default_strategy(self, difficulty: str) -> BaseStrategy:
         """Construye la estrategia según dificultad"""
         host = self.world or self
@@ -613,7 +620,7 @@ class AIPlayer(Player):
 
     def update(self, delta_time: float):
         """Override con timestamp para renderer"""
-        super().update(delta_time)
+        super().update(delta_time)  # Esto llama a Player.update() que maneja la recuperación
 
         self._last_update_time = time.time()
 

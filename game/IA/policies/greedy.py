@@ -31,6 +31,50 @@ def _manhattan(a, b) -> float:
     return abs(a[0] - b[0]) + abs(a[1] - b[1])
 
 
+def _nearest_walkable(world, goal: Tuple[int, int], max_search: int = 8) -> Optional[Tuple[int, int]]:
+    """
+    Encuentra la celda caminable más cercana al objetivo.
+    Usado cuando el objetivo está dentro de un edificio.
+    """
+    from collections import deque
+
+    gx, gy = goal
+
+    # Si el objetivo ya es caminable, retornarlo
+    if _is_walkable(world, gx, gy):
+        return goal
+
+    # BFS para encontrar la celda caminable más cercana
+    queue = deque([(gx, gy, 0)])
+    visited = {(gx, gy)}
+
+    while queue:
+        cx, cy, dist = queue.popleft()
+
+        # No buscar demasiado lejos
+        if dist > max_search:
+            continue
+
+        # Verificar vecinos
+        for dx, dy in _cardinal_neighbors():
+            nx, ny = cx + dx, cy + dy
+
+            if (nx, ny) in visited:
+                continue
+
+            visited.add((nx, ny))
+
+            # ¿Es caminable?
+            if _is_walkable(world, nx, ny):
+                return (nx, ny)
+
+            # Agregar a la cola para seguir buscando
+            queue.append((nx, ny, dist + 1))
+
+    # No se encontró nada caminable cerca
+    return None
+
+
 class GreedyPolicy(StepPolicy):
     """
     Greedy con pathfinding básico BFS para evitar quedar atrapado.
@@ -49,6 +93,10 @@ class GreedyPolicy(StepPolicy):
         self._stuck_counter = 0
         self._last_position = None
 
+        # Control de debug
+        self._last_debug_time = 0.0
+        self._debug_interval = 5.0  # Debug cada 5 segundos
+
     def _climate_risk(self) -> float:
         return 0.3 if getattr(self.world, "weather_system", None) else 0.0
 
@@ -58,12 +106,36 @@ class GreedyPolicy(StepPolicy):
             return 0.0
         return _manhattan(pos, target) + self.climate_weight * self._climate_risk()
 
+    def _should_show_debug(self, current_time: float) -> bool:
+        """Determina si debe mostrar debug (cada 5 segundos)"""
+        if not self.debug:
+            return False
+
+        if current_time - self._last_debug_time >= self._debug_interval:
+            self._last_debug_time = current_time
+            return True
+        return False
+
     def _find_bfs_path(self, start: Tuple[int, int], goal: Tuple[int, int]) -> list:
         """
         BFS simple para encontrar camino cuando greedy falla.
         Menos eficiente que A* pero funciona para IA media.
         """
         from collections import deque
+
+        # CRÍTICO: Verificar que el objetivo sea caminable
+        original_goal = goal
+        if not _is_walkable(self.world, goal[0], goal[1]):
+            # Buscar la celda caminable más cercana
+            adjusted_goal = _nearest_walkable(self.world, goal, max_search=10)
+            if adjusted_goal:
+                goal = adjusted_goal
+            else:
+                return []
+
+        # Verificar que el inicio sea caminable
+        if not _is_walkable(self.world, start[0], start[1]):
+            return []
 
         queue = deque([(start, [start])])
         visited = {start}
@@ -96,12 +168,14 @@ class GreedyPolicy(StepPolicy):
         """
         Decide el siguiente paso usando greedy + BFS de respaldo.
         """
+        import time
+        current_time = time.time()
+        show_debug = self._should_show_debug(current_time)
+
         # Sin objetivo, quedarse quieto
         if not ai.current_target:
             self._bfs_path = []
             self._stuck_counter = 0
-            if self.debug:
-                print(f"[Greedy-MEDIUM] AI en ({ai.x:.1f},{ai.y:.1f}) sin target")
             return (0, 0)
 
         target = ai.current_target
@@ -111,11 +185,10 @@ class GreedyPolicy(StepPolicy):
         if self._last_position == current_pos:
             self._stuck_counter += 1
         else:
-            # CRÍTICO: Solo resetear si NO está siguiendo un path BFS activo
+            # Solo resetear si NO está siguiendo un path BFS activo
             if not self._bfs_path:
                 self._stuck_counter = 0
             else:
-                # Está avanzando en el path, resetear contador
                 self._stuck_counter = 0
 
         self._last_position = current_pos
@@ -125,28 +198,26 @@ class GreedyPolicy(StepPolicy):
 
         if self._stuck_counter >= 3:
             should_replan = True
-            reason = "stuck"
+            reason = "atascado"
         elif self._bfs_target != target:
             should_replan = True
-            reason = "target_change"
+            reason = "cambio_objetivo"
         elif not self._bfs_path:
             should_replan = True
-            reason = "no_path"
+            reason = "sin_path"
 
         if should_replan:
-            if self.debug:
-                print(f"[Greedy-MEDIUM] 🔄 BFS desde {current_pos} a {target} (razón: {reason})")
+            if show_debug:
+                print(f"[Greedy-MEDIUM] 🔄 Recalculando path ({reason})")
 
             self._bfs_path = self._find_bfs_path(current_pos, target)
             self._bfs_target = target
             self._stuck_counter = 0
 
-            if not self._bfs_path:
-                if self.debug:
-                    print(f"[Greedy-MEDIUM] ❌ Sin camino a {target}")
-                return (0, 0)
-            elif self.debug:
-                print(f"[Greedy-MEDIUM] ✅ Path: {len(self._bfs_path)} nodos")
+            if not self._bfs_path and show_debug:
+                print(f"[Greedy-MEDIUM] ⚠️  No se encontró path a {target}")
+            elif self._bfs_path and show_debug:
+                print(f"[Greedy-MEDIUM] ✅ Path encontrado: {len(self._bfs_path)} nodos")
 
         # Si hay path BFS activo, seguirlo
         if self._bfs_path:
@@ -156,8 +227,6 @@ class GreedyPolicy(StepPolicy):
             if current_pos == next_node:
                 self._bfs_path.pop(0)
                 if not self._bfs_path:
-                    if self.debug:
-                        print(f"[Greedy-MEDIUM] ✓ Llegó al objetivo")
                     return (0, 0)
                 next_node = self._bfs_path[0]
 
@@ -191,8 +260,6 @@ class GreedyPolicy(StepPolicy):
             candidates.append((score, dx, dy))
 
         if not candidates:
-            if self.debug:
-                print(f"[Greedy-MEDIUM] ⚠️  Sin movimientos, activando BFS")
             self._stuck_counter = 3
             return (0, 0)
 

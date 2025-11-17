@@ -24,6 +24,7 @@ class Player:
         self.move_speed = config.get("move_speed", 3.0)
 
         game_config = config.get("game", {}) if "game" in config else {}
+        self.stamina_recovery_cooldown = float(game_config.get("stamina_recovery_cooldown", 0.5))
         self.stamina = float(game_config.get("initial_stamina", 100.0))
         self.reputation = float(game_config.get("initial_reputation", 70.0))
         self.earnings = 0.0
@@ -63,6 +64,8 @@ class Player:
         max_inventory_weight = config.get("max_inventory_weight", 10.0)
         self.inventory = Inventory(max_inventory_weight)
 
+        self.stamina = float(game_config.get("initial_stamina", 100))
+        self.max_stamina = float(game_config.get("initial_stamina", 100))
         self.state = PlayerState.NORMAL
         self.is_moving = False
         self.recovery_timer = 0.0
@@ -73,6 +76,9 @@ class Player:
         self.deliveries_completed = 0
         self.orders_cancelled = 0
         self.consecutive_on_time = 0
+
+        # Cooldown para recuperación de stamina
+        self.time_since_stopped = 0.0  # Contador de tiempo quieto
 
         # ========== SISTEMA DE UNDO ==========
         undo_config = config.get("undo", {})
@@ -413,11 +419,28 @@ class Player:
         self.stamina = clamp(self.stamina - base_drain, 0, 100)
 
     def _recover_stamina(self, delta_time: float):
-        if self.state == PlayerState.EXHAUSTED:
-            recovery_rate = 3.0
+        """
+        Recupera stamina cuando el jugador NO se está moviendo.
+        REQUIERE 0.5 segundos quieto antes de empezar a recuperar.
+        """
+        # Solo incrementar el contador si está completamente quieto
+        if not self.is_moving:
+            self.time_since_stopped += delta_time
         else:
-            recovery_rate = 5.0
-        self.stamina = clamp(self.stamina + recovery_rate * delta_time, 0, 100)
+            self.time_since_stopped = 0.0
+            return
+
+        # Solo recuperar después del cooldown
+        if self.time_since_stopped >= self.stamina_recovery_cooldown:
+            recovery_rate = 5.0  # Stamina por segundo
+            old_stamina = self.stamina
+            max_stamina_value = self.max_stamina if hasattr(self, 'max_stamina') else 100.0
+            self.stamina = min(max_stamina_value, self.stamina + recovery_rate * delta_time)
+
+            # Debug solo cuando empieza a recuperar
+            if getattr(self, 'debug', False) and abs(old_stamina - self.stamina) > 0.01:
+                if int(self.time_since_stopped * 2) % 3 == 0:  # Cada 1.5s aprox
+                    print(f"[Player] Recuperando stamina: {self.stamina:.1f}/{max_stamina_value:.0f}")
 
     def _update_state(self):
         if self.stamina <= 0:

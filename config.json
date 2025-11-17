@@ -17,7 +17,8 @@
         "initial_reputation": 70,
         "initial_stamina": 1100,
         "goal_earnings": 1100,
-        "order_release_seconds": 40
+        "order_release_seconds": 40,
+        "stamina_recovery_cooldown": 0.5
     },
     "player": {
          "base_speed": 3.0,
