@@ -92,6 +92,11 @@
       "enabled": true,
       "difficulty": "medium",
       "sprite_scale": 100,
-      "max_render_distance": 15
+      "max_render_distance": 15,
+      "order_accept_cooldown": {
+        "easy": 3.0,
+        "medium": 2.0,
+        "hard": 1.0
+      }
     }
 }

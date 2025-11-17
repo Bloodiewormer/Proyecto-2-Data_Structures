@@ -20,53 +20,48 @@ class GameRules:
 
     def _check_ai_monopoly(self, game):
         """
-        Determina si alguna IA tiene TODOS los pedidos del juego (monopolio).
-        Condiciones:
-        - No hay pending_orders.
-        - El jugador no tiene pedidos.
-        - Existe una IA con al menos un pedido y todos sus pedidos están en estado 'picked_up' o 'delivered'.
-        - Las demás IA (si hubiera más de una) no tienen pedidos.
+        Determina si alguna IA ha COMPLETADO todos los pedidos del juego.
+        Condiciones para victoria de IA:
+        - No hay pending_orders disponibles.
+        - El jugador no tiene pedidos activos.
+        - Existe una IA que ha ENTREGADO (delivered) todos sus pedidos.
+        - La IA tiene al menos 1 entrega completada.
         Retorna la IA ganadora o None.
         """
         try:
             if self._ai_victory_triggered:
                 return None
+
             # Validaciones base
             if not getattr(game, "ai_players", None):
                 return None
+
+            # CRÍTICO: Solo verificar monopolio si NO hay pedidos pendientes
             if game.pending_orders:
                 return None
+
+            # CRÍTICO: Solo verificar si el jugador NO tiene pedidos activos
             if getattr(game.player, "inventory", None) and game.player.inventory.orders:
                 return None
 
-            # Filtrar IAs candidatas
-            candidates = []
+            # Buscar IA ganadora: debe tener todos sus pedidos ENTREGADOS y al menos 1 entrega
             for ai in game.ai_players:
                 inv = getattr(ai, "inventory", None)
-                if not inv or not inv.orders:
+
+                # La IA ganadora NO debe tener pedidos activos
+                if inv and inv.orders:
                     continue
-                # Todos los pedidos de la IA están al menos recogidos (picked_up) o ya entregados (delivered)
-                if all(getattr(o, "status", "") in ("picked_up", "delivered") for o in inv.orders):
-                    candidates.append(ai)
 
-            if not candidates:
-                return None
 
-            # Verificar que ninguna otra IA tenga pedidos 'in_progress'
-            for ai in game.ai_players:
-                if ai not in candidates:
-                    inv = getattr(ai, "inventory", None)
-                    if inv and inv.orders:
-                        # Otra IA también tiene pedidos → no monopolio claro
-                        return None
+                deliveries = getattr(ai, "deliveries_completed", 0)
+                if deliveries >= 1:
+                    # Esta IA completó sus entregas y no quedan pedidos disponibles
+                    return ai
 
-            # Si hay exactamente una IA candidata con monopolio
-            if len(candidates) == 1:
-                return candidates[0]
-
-            # Si hubiera más de una con todos recogidos, se puede escoger la primera para efecto de mensaje.
-            return candidates[0] if candidates else None
-        except Exception:
+            return None
+        except Exception as e:
+            if getattr(game, 'debug', False):
+                print(f"[GameRules] Error en _check_ai_monopoly: {e}")
             return None
 
     def check_and_handle(self, game) -> None:

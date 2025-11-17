@@ -170,7 +170,8 @@ class AIPlayer(Player):
 
     def _calculate_wall_avoidance_vector(self, city, target_dx: float, target_dy: float) -> Tuple[float, float]:
         """
-        VERSIÓN CORREGIDA: Evitación más suave y menos agresiva.
+        VERSIÓN OPTIMIZADA: Evitación más sutil para IA difícil.
+        IA difícil usa evitación MÍNIMA, solo para no chocar.
         """
         mag = math.sqrt(target_dx ** 2 + target_dy ** 2)
         if mag < 0.001:
@@ -179,8 +180,33 @@ class AIPlayer(Player):
         norm_dx = target_dx / mag
         norm_dy = target_dy / mag
 
-        # Reducir ángulos de verificación para no sobre-compensar
-        check_angles = [-20, -10, 0, 10, 20]  # CAMBIO: Antes [-45, -30, -15, 0, 15, 30, 45]
+        # IA DIFÍCIL: Evitación más agresiva solo si está siguiendo path A*
+        if self.difficulty == "hard":
+            # Verificar solo si hay pared DIRECTAMENTE adelante
+            if self._check_wall_ahead(city, norm_dx, norm_dy, 0.4):
+                # Buscar ruta lateral mínima
+                base_angle = math.atan2(norm_dy, norm_dx)
+
+                # Probar solo 2 direcciones perpendiculares
+                for angle_offset in [math.pi / 4, -math.pi / 4]:  # 45° a cada lado
+                    test_angle = base_angle + angle_offset
+                    test_dx = math.cos(test_angle)
+                    test_dy = math.sin(test_angle)
+
+                    if not self._check_wall_ahead(city, test_dx, test_dy, 0.3):
+                        # Mezclar solo 30% de corrección
+                        final_dx = norm_dx * 0.7 + test_dx * 0.3
+                        final_dy = norm_dy * 0.7 + test_dy * 0.3
+
+                        final_mag = math.sqrt(final_dx ** 2 + final_dy ** 2)
+                        if final_mag > 0.001:
+                            return (final_dx / final_mag, final_dy / final_mag)
+
+            # No hay pared cerca, seguir directo
+            return (norm_dx, norm_dy)
+
+        # OTRAS IAS: Evitación más conservadora (código original simplificado)
+        check_angles = [-20, -10, 0, 10, 20]
         base_angle = math.atan2(norm_dy, norm_dx)
 
         repulsion_x = 0.0
@@ -191,20 +217,18 @@ class AIPlayer(Player):
             check_dx = math.cos(check_angle)
             check_dy = math.sin(check_angle)
 
-            # Verificar solo 2 distancias (antes: 3)
             for dist in [0.4, 0.7]:
                 test_x = self.x + check_dx * dist
                 test_y = self.y + check_dy * dist
 
                 if city.is_wall(test_x, test_y):
-                    # Repulsión más suave
-                    strength = (1.0 - dist / 0.7) * 1.0  # CAMBIO: Antes * 2.0
+                    strength = (1.0 - dist / 0.7) * 1.0
                     repulsion_x -= check_dx * strength
                     repulsion_y -= check_dy * strength
                     break
 
         # Combinar con menos peso en la repulsión
-        final_dx = norm_dx + repulsion_x * 0.5  # CAMBIO: Antes sin multiplicar por 0.5
+        final_dx = norm_dx + repulsion_x * 0.5
         final_dy = norm_dy + repulsion_y * 0.5
 
         # Normalizar resultado
@@ -334,6 +358,7 @@ class AIPlayer(Player):
     def _apply_step(self, dx: int, dy: int, game):
         """
         VERSIÓN CORREGIDA: Aplica movimiento con evitación suave y consume stamina.
+        IA DIFÍCIL: Mira hacia el path A*, no hacia el vector ajustado.
         """
         city = getattr(game, "city", None)
         if not city:
@@ -385,8 +410,23 @@ class AIPlayer(Player):
             city, target_dx, target_dy
         )
 
-        # Calcular ángulo objetivo
-        self.target_angle = math.atan2(adjusted_dy, adjusted_dx)
+        # CRÍTICO: IA difícil mira hacia el SIGUIENTE NODO del path, no hacia el vector ajustado
+        if self.difficulty == "hard" and hasattr(self, 'strategy') and hasattr(self.strategy, 'planner'):
+            planner = self.strategy.planner
+            if planner._path and len(planner._path) > 0:
+                next_node = planner._path[0]
+                target_angle_dx = next_node[0] - self.x
+                target_angle_dy = next_node[1] - self.y
+                angle_magnitude = math.sqrt(target_angle_dx ** 2 + target_angle_dy ** 2)
+                if angle_magnitude > 0.01:
+                    self.target_angle = math.atan2(target_angle_dy, target_angle_dx)
+                else:
+                    self.target_angle = math.atan2(adjusted_dy, adjusted_dx)
+            else:
+                self.target_angle = math.atan2(adjusted_dy, adjusted_dx)
+        else:
+            # Otras IAs usan vector ajustado
+            self.target_angle = math.atan2(adjusted_dy, adjusted_dx)
 
         # Suavizar rotación
         self._smooth_angle_to_target(delta_time)
@@ -394,19 +434,26 @@ class AIPlayer(Player):
         # Actualizar dirección del sprite
         self._update_sprite_direction()
 
-        # Calcular multiplicador de velocidad
+        # CRÍTICO: Calcular velocidad efectiva COMPLETA (con TODOS los multiplicadores)
+        base_effective_speed = self.calculate_effective_speed(city)
+
+        # Calcular multiplicador de velocidad por proximidad a paredes
         speed_mult = self._calculate_speed_multiplier(city)
 
         # Suavizar velocidad (aceleración/desaceleración)
-        target_vel_x = adjusted_dx * speed_mult
-        target_vel_y = adjusted_dy * speed_mult
+        target_vel_x = adjusted_dx * speed_mult * base_effective_speed
+        target_vel_y = adjusted_dy * speed_mult * base_effective_speed
 
         smoothing_factor = min(1.0, delta_time * self.velocity_smoothing)
         self.current_velocity[0] += (target_vel_x - self.current_velocity[0]) * smoothing_factor
         self.current_velocity[1] += (target_vel_y - self.current_velocity[1]) * smoothing_factor
 
-        # Aplicar movimiento
-        self.move(self.current_velocity[0], self.current_velocity[1], delta_time, city)
+        # Aplicar movimiento usando velocidad normalizada
+        vel_mag = math.sqrt(self.current_velocity[0] ** 2 + self.current_velocity[1] ** 2)
+        if vel_mag > 0.01:
+            norm_vel_x = self.current_velocity[0] / vel_mag
+            norm_vel_y = self.current_velocity[1] / vel_mag
+            self.move(norm_vel_x, norm_vel_y, delta_time, city)
 
         # CRÍTICO: Calcular distancia real movida
         distance_moved = math.sqrt((self.x - prev_x) ** 2 + (self.y - prev_y) ** 2)
@@ -635,3 +682,27 @@ class AIPlayer(Player):
     def get_sprite_direction(self) -> str:
         """Dirección actual del sprite (8 direcciones)"""
         return self.current_direction
+
+    def try_accept_order_with_delay(self, order, current_time: float) -> bool:
+        """
+        Intenta aceptar un pedido respetando cooldown entre aceptaciones.
+        El cooldown es configurable por dificultad desde config.json.
+        """
+        if not hasattr(self, '_last_order_accept_time'):
+            self._last_order_accept_time = 0.0
+
+        # Obtener cooldown desde config
+        cooldown = 2.0  # Default
+        if self.world and hasattr(self.world, 'app_config'):
+            ai_config = self.world.app_config.get('ai', {})
+            cooldowns = ai_config.get('order_accept_cooldown', {})
+            cooldown = float(cooldowns.get(self.difficulty, 2.0))
+
+        if (current_time - self._last_order_accept_time) < cooldown:
+            return False
+
+        if self.add_order_to_inventory(order):
+            self._last_order_accept_time = current_time
+            return True
+
+        return False

@@ -347,7 +347,8 @@ class HardStrategy(BaseStrategy):
             if order:
                 # Verificar que aún sea viable (peso, stamina)
                 if self._is_order_viable(ai, order):
-                    if ai.add_order_to_inventory(order):
+                    # Usar el méodo con cooldown
+                    if ai.try_accept_order_with_delay(order, now):
                         order.start_timer(now)
                         order.status = "in_progress"
                         game.pending_orders.remove(order)

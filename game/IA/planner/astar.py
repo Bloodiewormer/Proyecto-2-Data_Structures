@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 import heapq
+import math
 from typing import List, Tuple, Optional
 from game.IA.interfaces import PathPlanner
 
@@ -250,6 +251,7 @@ class AStarPlanner(PathPlanner):
     def next_step(self, ai: "AIPlayer") -> Tuple[int, int]:
         """
         Retorna el siguiente paso discreto hacia el objetivo.
+        VERSIÓN OPTIMIZADA: Reduce recálculos innecesarios.
         """
         if not self._goal:
             return (0, 0)
@@ -257,10 +259,21 @@ class AStarPlanner(PathPlanner):
         # Redondear posición actual al entero más cercano
         start = (int(ai.x + 0.5), int(ai.y + 0.5))
 
-        # Replanificar si es necesario
-        if (not self._path or
-                self._goal != (self._path[-1] if self._path else None) or
-                start != self._last_start):
+        # Calcular distancia al siguiente nodo del path
+        needs_replan = False
+
+        if not self._path:
+            needs_replan = True
+        elif self._goal != (self._path[-1] if self._path else None):
+            needs_replan = True
+        elif self._path and len(self._path) > 0:
+            next_node = self._path[0]
+            distance_to_next = math.sqrt((ai.x - next_node[0]) ** 2 + (ai.y - next_node[1]) ** 2)
+            if distance_to_next > 1.5:
+                needs_replan = True
+
+        # Replanificar solo si es necesario
+        if needs_replan:
             self.replan(start, self._goal)
 
         if not self._path:
