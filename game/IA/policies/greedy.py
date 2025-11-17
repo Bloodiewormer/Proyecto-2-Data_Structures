@@ -20,7 +20,7 @@ def _manhattan(a, b) -> float:
 
 class GreedyPolicy(StepPolicy):
     """
-    Greedy con heurística: distancia + penalización climática básica.
+    Greedy con heurística y pequeña penalización para evitar retrocesos inmediatos.
     """
     def __init__(self, world, climate_weight: float = 0.5, lookahead_depth: int = 2):
         self.world = world
@@ -28,7 +28,6 @@ class GreedyPolicy(StepPolicy):
         self.depth = int(lookahead_depth)
 
     def _climate_risk(self) -> float:
-        # Si tu WeatherSystem expone algo útil, úsalo aquí o calibra este valor
         return 0.3 if getattr(self.world, "weather_system", None) else 0.0
 
     def _h(self, pos, target: Optional[Tuple[int,int]]) -> float:
@@ -37,19 +36,42 @@ class GreedyPolicy(StepPolicy):
         return _manhattan(pos, target) + self.climate_weight * self._climate_risk()
 
     def decide_step(self, ai: "AIPlayer") -> Tuple[int, int]:
+        # Si no hay objetivo, no oscilar sin sentido
+        if not ai.current_target:
+            return (0, 0)
+
+        last_dx, last_dy = getattr(ai, "_current_step", (0, 0))
+        inverse_last = (-last_dx, -last_dy)
+
         best = (0, 0)
-        best_score = float("inf") #+infinito
+        best_score = float("inf")
+
         for dx, dy in _cardinal_neighbors():
             nx, ny = ai.x + dx, ai.y + dy
             if not _is_walkable(self.world, nx, ny):
                 continue
+
             score = self._h((nx, ny), ai.current_target)
+
+            # Lookahead opcional
             if self.depth > 1:
+                local_best = score
                 for sdx, sdy in _cardinal_neighbors():
                     nnx, nny = nx + sdx, ny + sdy
                     if _is_walkable(self.world, nnx, nny):
-                        score = min(score, self._h((nnx, nny), ai.current_target))
+                        local_best = min(local_best, self._h((nnx, nny), ai.current_target))
+                score = local_best
+
+            # Penalizar revertir inmediatamente el movimiento anterior
+            if (dx, dy) == inverse_last:
+                score += 0.25  # pequeño castigo
+
+            # Favorecer continuar en misma dirección si similar (tie-break)
+            if (dx, dy) == (last_dx, last_dy):
+                score -= 0.05
+
             if score < best_score:
                 best_score = score
                 best = (dx, dy)
+
         return best

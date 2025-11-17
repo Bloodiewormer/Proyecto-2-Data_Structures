@@ -20,22 +20,31 @@ class BaseStrategy:
 class EasyStrategy(BaseStrategy):
     """
     Estrategia fácil: RandomChoicePolicy con sesgo a current_target si existe.
-    También acepta el primer pedido disponible si no tiene ninguno.
+    También intenta aceptar el primer pedido disponible si no tiene ninguno,
+    respetando el delay configurado en AIPlayer (try_accept_order_with_delay).
     """
     def __init__(self, world):
         self.world = world
         self.policy: StepPolicy = RandomChoicePolicy(world)
 
     def decide(self, ai: "AIPlayer", game) -> Optional[Tuple[int, int]]:
-        # Tomar pedido si no tiene
+        # Tomar pedido si no tiene (pero respetando el delay)
         if not ai.inventory.orders and game.pending_orders:
             order = game.pending_orders[0]
-            if ai.add_order_to_inventory(order):
-                game.pending_orders.remove(order)
-                if game.orders_manager:
-                    game.orders_manager.pending_orders = game.pending_orders
-                if hasattr(order, 'start_timer'):
-                    order.start_timer(game.total_play_time)
+            now = getattr(game, "total_play_time", None)
+            if ai.try_accept_order_with_delay(order, now):
+                # si realmente fue aceptado, remover de pending
+                try:
+                    game.pending_orders.remove(order)
+                    if game.orders_manager:
+                        game.orders_manager.pending_orders = game.pending_orders
+                except Exception:
+                    pass
+                try:
+                    if hasattr(order, 'start_timer'):
+                        order.start_timer(game.total_play_time)
+                except Exception:
+                    pass
                 ai.current_target = order.pickup_pos
 
         # Si tiene pedido, decidir target según estado
@@ -53,6 +62,7 @@ class EasyStrategy(BaseStrategy):
 class MediumStrategy(BaseStrategy):
     """
     Estrategia media: selección de pedido por heurística y movimiento Greedy.
+    Usa try_accept_order_with_delay para respetar delays antes de aceptar.
     """
     def __init__(self, world, lookahead_depth: int = 2, climate_weight: float = 0.5):
         self.world = world
@@ -77,17 +87,26 @@ class MediumStrategy(BaseStrategy):
                             weather_penalty = (1.0 - speed_mult) * 100
                         except Exception:
                             pass
-                    score = alpha * float(getattr(order, "payout", getattr(order, "payment", 0.0))) - beta * dist - gamma * weather_penalty
+                    score = alpha * float(getattr(order, "payout", getattr(order, "payment",
+                                                                           0.0))) - beta * dist - gamma * weather_penalty
                     if score > best_score:
                         best, best_score = order, score
 
-                if best and ai.add_order_to_inventory(best):
-                    game.pending_orders.remove(best)
-                    if game.orders_manager:
-                        game.orders_manager.pending_orders = game.pending_orders
-                    if hasattr(best, 'start_timer'):
-                        best.start_timer(game.total_play_time)
-                    ai.current_target = best.pickup_pos
+                if best:
+                    now = getattr(game, "total_play_time", None)
+                    if ai.try_accept_order_with_delay(best, now):
+                        try:
+                            game.pending_orders.remove(best)
+                            if game.orders_manager:
+                                game.orders_manager.pending_orders = game.pending_orders
+                        except Exception:
+                            pass
+                        try:
+                            if hasattr(best, 'start_timer'):
+                                best.start_timer(game.total_play_time)
+                        except Exception:
+                            pass
+                        ai.current_target = best.pickup_pos
             else:
                 ai.current_target = None
 

@@ -1,5 +1,6 @@
 from __future__ import annotations
-from typing import Optional, Tuple
+from typing import Optional, Tuple, Dict
+import time
 
 from game.entities.player import Player
 from game.core.orders import Order
@@ -44,6 +45,30 @@ class AIPlayer(Player):
 
         self._decision_interval = 0.5
         self._decision_cooldown = 0.0
+
+        # --- Accept-delay por dificultad / configurable ---
+        # valores por defecto (puedes cambiarlos)
+        default_delays = {
+            "easy": 5,
+            "medium": 2.5,
+            "hard": 1.0
+        }
+        # intentamos leer configuration en app_config: app_config["ai"]["accept_delays"]
+        configured_delays = {}
+        try:
+            cfg = getattr(self.world, "app_config", {}) or {}
+            configured_delays = (cfg.get("ai", {}) or {}).get("accept_delays", {})
+            # espera un mapping, ej: {"easy": 2.0, "medium": 1.0, "hard": 0.1}
+        except Exception:
+            configured_delays = {}
+
+        self.order_accept_delay = float(
+            configured_delays.get(self.difficulty, default_delays.get(self.difficulty, 0.0)))
+
+        # timestamp en que se 'vio' cada pedido (order.id -> timestamp)
+        self._order_seen_times: Dict[str, float] = {}
+
+
 
         self.strategy: BaseStrategy = strategy or self._build_default_strategy(self.difficulty)
 
@@ -101,12 +126,72 @@ class AIPlayer(Player):
                 order.status = "in_progress"
         except Exception:
             pass
+        # si aceptó, actualizar peso
+        try:
+            self.set_inventory_weight(self.inventory.current_weight)
+        except Exception:
+            pass
         return True
+
+    def try_accept_order_with_delay(self, order, current_time: Optional[float] = None) -> bool:
+        """
+        Intentar aceptar 'order' respetando el delay de aceptación configurado.
+        current_time preferiblemente game.total_play_time; si es None usa time.time()
+        Retorna True si el pedido fue aceptado (y ya se debe eliminar de pending_orders).
+        """
+        now = current_time if current_time is not None else time.time()
+        oid = getattr(order, "id", None)
+        if oid is None:
+            # si no tiene id, intentar aceptar de forma inmediata
+            return self.add_order_to_inventory(order)
+
+        # si el pedido ya no está en la cola (otro jugador lo tomó), limpiar y devolver False
+        try:
+            pending = getattr(self.world, "pending_orders", None)
+            if pending is not None and all(getattr(o, "id", None) != oid for o in pending):
+                self._order_seen_times.pop(str(oid), None)
+                return False
+        except Exception:
+            pass
+
+        seen_ts = self._order_seen_times.get(str(oid))
+        if seen_ts is None:
+            # registrar el primer "visto"
+            self._order_seen_times[str(oid)] = now
+            return False
+
+        # comprobar si ya pasó el delay requerido
+        if (now - seen_ts) >= float(self.order_accept_delay):
+            accepted = False
+            try:
+                accepted = self.add_order_to_inventory(order)
+            except Exception:
+                accepted = False
+            if accepted:
+                self._order_seen_times.pop(str(oid), None)
+            return accepted
+
+        return False
+
+    def _prune_seen_orders(self, game):
+        """
+        Quitar timestamps de pedidos que ya no están en pending_orders para no acumular memoria.
+        """
+        try:
+            pending_ids = {str(getattr(o, "id", None)) for o in (getattr(game, "pending_orders", []) or [])}
+            for oid in list(self._order_seen_times.keys()):
+                if oid not in pending_ids:
+                    self._order_seen_times.pop(oid, None)
+        except Exception:
+            pass
 
     def update(self, delta_time: float):
         super().update(delta_time)
 
     def update_with_strategy(self, game):
+        # limpiar seen timestamps de pedidos que ya no existen
+        self._prune_seen_orders(game)
+
         if not self.strategy:
             return
         try:
