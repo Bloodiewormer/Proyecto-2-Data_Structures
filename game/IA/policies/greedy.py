@@ -33,14 +33,21 @@ def _manhattan(a, b) -> float:
 
 class GreedyPolicy(StepPolicy):
     """
-    Greedy simple y robusto que SIEMPRE encuentra un movimiento válido.
+    Greedy con pathfinding básico BFS para evitar quedar atrapado.
+    Usa BFS (más simple que A*) para encontrar caminos cuando greedy falla.
     """
 
     def __init__(self, world, climate_weight: float = 0.5, lookahead_depth: int = 1):
         self.world = world
         self.climate_weight = float(climate_weight)
         self.depth = int(lookahead_depth)
-        self.debug = False  # Activar para debugging
+        self.debug = getattr(world, 'debug', False)
+
+        # Sistema de pathfinding básico
+        self._bfs_path = []
+        self._bfs_target = None
+        self._stuck_counter = 0
+        self._last_position = None
 
     def _climate_risk(self) -> float:
         return 0.3 if getattr(self.world, "weather_system", None) else 0.0
@@ -51,60 +58,145 @@ class GreedyPolicy(StepPolicy):
             return 0.0
         return _manhattan(pos, target) + self.climate_weight * self._climate_risk()
 
+    def _find_bfs_path(self, start: Tuple[int, int], goal: Tuple[int, int]) -> list:
+        """
+        BFS simple para encontrar camino cuando greedy falla.
+        Menos eficiente que A* pero funciona para IA media.
+        """
+        from collections import deque
+
+        queue = deque([(start, [start])])
+        visited = {start}
+        max_iterations = 500
+        iterations = 0
+
+        while queue and iterations < max_iterations:
+            iterations += 1
+            current, path = queue.popleft()
+
+            if current == goal:
+                return path[1:] if len(path) > 1 else []
+
+            for dx, dy in _cardinal_neighbors():
+                nx, ny = current[0] + dx, current[1] + dy
+                neighbor = (nx, ny)
+
+                if neighbor in visited:
+                    continue
+
+                if not _is_walkable(self.world, nx, ny):
+                    continue
+
+                visited.add(neighbor)
+                queue.append((neighbor, path + [neighbor]))
+
+        return []
+
     def decide_step(self, ai: "AIPlayer") -> Tuple[int, int]:
         """
-        Decide el siguiente paso usando greedy con heurística.
-        GARANTIZA retornar un movimiento válido.
+        Decide el siguiente paso usando greedy + BFS de respaldo.
         """
         # Sin objetivo, quedarse quieto
         if not ai.current_target:
+            self._bfs_path = []
+            self._stuck_counter = 0
             if self.debug:
-                print(f"[Greedy] AI {id(ai)} sin target")
+                print(f"[Greedy-MEDIUM] AI en ({ai.x:.1f},{ai.y:.1f}) sin target")
             return (0, 0)
 
         target = ai.current_target
+        current_pos = (int(ai.x + 0.5), int(ai.y + 0.5))
+
+        # Detectar si está atascado (posición no cambia)
+        if self._last_position == current_pos:
+            self._stuck_counter += 1
+        else:
+            # CRÍTICO: Solo resetear si NO está siguiendo un path BFS activo
+            if not self._bfs_path:
+                self._stuck_counter = 0
+            else:
+                # Está avanzando en el path, resetear contador
+                self._stuck_counter = 0
+
+        self._last_position = current_pos
+
+        # Si está atascado O el target cambió, recalcular path con BFS
+        should_replan = False
+
+        if self._stuck_counter >= 3:
+            should_replan = True
+            reason = "stuck"
+        elif self._bfs_target != target:
+            should_replan = True
+            reason = "target_change"
+        elif not self._bfs_path:
+            should_replan = True
+            reason = "no_path"
+
+        if should_replan:
+            if self.debug:
+                print(f"[Greedy-MEDIUM] 🔄 BFS desde {current_pos} a {target} (razón: {reason})")
+
+            self._bfs_path = self._find_bfs_path(current_pos, target)
+            self._bfs_target = target
+            self._stuck_counter = 0
+
+            if not self._bfs_path:
+                if self.debug:
+                    print(f"[Greedy-MEDIUM] ❌ Sin camino a {target}")
+                return (0, 0)
+            elif self.debug:
+                print(f"[Greedy-MEDIUM] ✅ Path: {len(self._bfs_path)} nodos")
+
+        # Si hay path BFS activo, seguirlo
+        if self._bfs_path:
+            next_node = self._bfs_path[0]
+
+            # Si llegamos al nodo actual, avanzar al siguiente
+            if current_pos == next_node:
+                self._bfs_path.pop(0)
+                if not self._bfs_path:
+                    if self.debug:
+                        print(f"[Greedy-MEDIUM] ✓ Llegó al objetivo")
+                    return (0, 0)
+                next_node = self._bfs_path[0]
+
+            # Calcular paso hacia el siguiente nodo
+            dx = 1 if next_node[0] > ai.x else -1 if next_node[0] < ai.x else 0
+            dy = 1 if next_node[1] > ai.y else -1 if next_node[1] < ai.y else 0
+
+            return (dx, dy)
+
+        # Greedy normal (solo si no hay path BFS)
         last_dx, last_dy = getattr(ai, "_current_step", (0, 0))
         inverse_last = (-last_dx, -last_dy)
 
-        # Evaluar todas las direcciones cardinales
         candidates = []
 
         for dx, dy in _cardinal_neighbors():
             nx = ai.x + dx
             ny = ai.y + dy
 
-            # Verificar si es caminable
             if not _is_walkable(self.world, nx, ny):
                 continue
 
-            # Calcular score (menor es mejor - más cerca del objetivo)
             score = self._h((nx, ny), target)
 
-            # Penalizar retrocesos
             if (dx, dy) == inverse_last:
-                score += 1.0  # Penalización más fuerte
+                score += 1.0
 
-            # Bonus por mantener dirección
             if (dx, dy) == (last_dx, last_dy):
                 score -= 0.1
 
             candidates.append((score, dx, dy))
 
-            if self.debug:
-                print(f"[Greedy] Candidato ({dx},{dy}): pos=({nx:.1f},{ny:.1f}) score={score:.2f}")
-
-        # Si no hay candidatos válidos, quedarse quieto
         if not candidates:
             if self.debug:
-                print(f"[Greedy] AI en ({ai.x:.1f},{ai.y:.1f}) sin movimientos válidos!")
+                print(f"[Greedy-MEDIUM] ⚠️  Sin movimientos, activando BFS")
+            self._stuck_counter = 3
             return (0, 0)
 
-        # Ordenar por score y tomar el mejor
         candidates.sort(key=lambda x: x[0])
         best_score, best_dx, best_dy = candidates[0]
-
-        if self.debug:
-            print(
-                f"[Greedy] AI en ({ai.x:.1f},{ai.y:.1f}) -> target={target} elegido=({best_dx},{best_dy}) score={best_score:.2f}")
 
         return (best_dx, best_dy)

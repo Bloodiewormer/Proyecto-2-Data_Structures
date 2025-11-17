@@ -7,6 +7,7 @@ from game.IA.policies.greedy import GreedyPolicy
 from game.IA.planner.astar import AStarPlanner
 
 
+
 def _manhattan(a: Tuple[int,int], b: Tuple[int,int]) -> int:
     return abs(a[0]-b[0]) + abs(a[1]-b[1])
 
@@ -99,12 +100,23 @@ class EasyStrategy(BaseStrategy):
 
     def __init__(self, world):
         self.world = world
-        self.policy = RandomChoicePolicy(world, bias=0.70)
-        self.current_order_id = None  # Tracking del pedido actual
+        self.policy = RandomChoicePolicy(world, bias=0.35)  # CAMBIO: 70% -> 35%
+        self.current_order_id = None
         self.debug = getattr(world, 'debug', False)
 
     def decide(self, ai: "AIPlayer", game) -> Optional[Tuple[int, int]]:
         # 1. Si no tiene pedido, tomar el primero disponible
+        def decide(self, ai: "AIPlayer", game) -> Optional[Tuple[int, int]]:
+            now = game.total_play_time
+            # Debug periódico con stamina
+            if self.debug and int(game.total_play_time) % 3 == 0 and int(game.total_play_time) != getattr(self,
+                                                                                                          '_last_debug_time',
+                                                                                                          -1):
+                self._last_debug_time = int(game.total_play_time)
+                order_str = ai.inventory.orders[0].id[:8] if ai.inventory.orders else "Sin pedido"
+                print(f"[EASY] 📊 t={int(game.total_play_time)}s Pos=({ai.x:.1f},{ai.y:.1f}) Stamina={ai.stamina:.1f} "
+                      f"Pedido={order_str} $={ai.earnings:.0f}")
+
         if not ai.inventory.orders and game.pending_orders:
             order = game.pending_orders[0]
 
@@ -117,7 +129,7 @@ class EasyStrategy(BaseStrategy):
                 ai.current_target = None
                 return (0, 0)
 
-            # Intentar aceptar con delay
+            # Intentar aceptar con delay (usa el método ya agregado)
             if ai.try_accept_order_with_delay(order, game.total_play_time):
                 order.start_timer(game.total_play_time)
                 order.status = "in_progress"
@@ -131,6 +143,10 @@ class EasyStrategy(BaseStrategy):
 
                 if self.debug:
                     print(f"[EASY] Aceptó {order.id[:8]} (payout: ${order.payout:.0f})")
+            else:
+                # No pudo aceptar (cooldown activo)
+                ai.current_target = None
+                return (0, 0)
 
         # 2. Actualizar target según estado del pedido
         if ai.inventory.orders:
@@ -142,8 +158,11 @@ class EasyStrategy(BaseStrategy):
         else:
             ai.current_target = None
 
-        # 3. Movimiento aleatorio con sesgo hacia target
-        return self.policy.decide_step(ai)
+        # 3. Movimiento aleatorio con sesgo SOLO si hay target
+        if ai.current_target:
+            return self.policy.decide_step(ai)
+
+        return (0, 0)
 
 
 class MediumStrategy(BaseStrategy):
@@ -161,6 +180,12 @@ class MediumStrategy(BaseStrategy):
 
     def decide(self, ai: "AIPlayer", game) -> Optional[Tuple[int, int]]:
         now = game.total_play_time
+
+        if self.debug and int(now) % 5 == 0 and int(now) != getattr(self, '_last_debug_second', -1):
+            self._last_debug_second = int(now)
+            order_str = ai.inventory.orders[0].id[:8] if ai.inventory.orders else "Sin pedido"
+            print(f"[MEDIUM]  Pos=({ai.x:.1f},{ai.y:.1f}), Stamina={ai.stamina:.1f}/{100}, "
+                  f"Rep={ai.reputation:.0f}, Pedido={order_str}, Earnings=${ai.earnings:.0f}")
 
         # 1. Si tiene pedido activo
         if ai.inventory.orders:
@@ -189,8 +214,9 @@ class MediumStrategy(BaseStrategy):
                         game.orders_manager.mark_canceled(order.id)
 
                         # Aceptar nuevo
-                        if ai.add_order_to_inventory(best_alt):
+                        if ai.try_accept_order_with_delay(best_alt, now):
                             best_alt.start_timer(now)
+                            best_alt.status = "in_progress"
                             game.pending_orders.remove(best_alt)
                             if hasattr(game.orders_manager, 'pending_orders'):
                                 game.orders_manager.pending_orders = game.pending_orders
@@ -200,6 +226,11 @@ class MediumStrategy(BaseStrategy):
 
             # Actualizar target según estado
             ai.current_target = order.dropoff_pos if order.status == "picked_up" else order.pickup_pos
+
+            # CRÍTICO: Mover solo si hay target válido
+            if ai.current_target:
+                return self.policy.decide_step(ai)
+            return (0, 0)
 
         # 2. Si no tiene pedido, elegir el mejor disponible
         else:
@@ -219,11 +250,13 @@ class MediumStrategy(BaseStrategy):
 
                     if self.debug:
                         print(f"[MEDIUM] Aceptó {best.id[:8]} (score {self._score_order(ai, best, game):.1f})")
-            else:
-                ai.current_target = None
 
-        # 3. Movimiento greedy
-        return self.policy.decide_step(ai)
+                    # Mover hacia el nuevo target
+                    return self.policy.decide_step(ai)
+
+            # Sin pedidos disponibles, quedarse quieto
+            ai.current_target = None
+            return (0, 0)
 
     def _score_order(self, ai: "AIPlayer", order, game) -> float:
         """
@@ -297,6 +330,7 @@ class MediumStrategy(BaseStrategy):
 
 
 class HardStrategy(BaseStrategy):
+
     """
     Estrategia avanzada: Usa A* para calcular rutas exactas y
     planifica secuencias de múltiples pedidos.

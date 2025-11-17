@@ -392,6 +392,7 @@ class AIPlayer(Player):
                 self.current_velocity[1] = 0
 
             self._current_step = (0, 0)
+            self.is_moving = False  # CRÍTICO: Marcar que NO se está moviendo
             return
 
         # Guardar posición previa para calcular distancia real
@@ -454,6 +455,9 @@ class AIPlayer(Player):
             norm_vel_x = self.current_velocity[0] / vel_mag
             norm_vel_y = self.current_velocity[1] / vel_mag
             self.move(norm_vel_x, norm_vel_y, delta_time, city)
+            self.is_moving = True  # CRÍTICO: Marcar que SÍ se está moviendo
+        else:
+            self.is_moving = False  # CRÍTICO: Marcar que NO se está moviendo
 
         # CRÍTICO: Calcular distancia real movida
         distance_moved = math.sqrt((self.x - prev_x) ** 2 + (self.y - prev_y) ** 2)
@@ -488,8 +492,8 @@ class AIPlayer(Player):
         old_stamina = self.stamina
         self.stamina = max(0.0, self.stamina - base_drain)
 
-        # Debug
-        if self.debug and self.stamina < 20 and old_stamina >= 20:
+        # Debug SOLO cuando stamina baja significativamente
+        if self.debug and old_stamina >= 20 and self.stamina < 20:
             print(f"[AI-{self.difficulty}] ⚠️  Stamina crítica: {self.stamina:.1f}")
 
     # ==================== GESTIÓN DE PEDIDOS ====================
