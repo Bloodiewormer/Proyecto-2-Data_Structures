@@ -6,69 +6,68 @@ from pathlib import Path
 
 class AISpriteRenderer:
     """
-    Renderiza sprites de AI Players en el mundo 3D de forma optimizada.
-    Corrige orientación, tamaño, colores y rendimiento.
+    Renderiza sprites de AI considerando la perspectiva del jugador.
     """
 
     def __init__(self, app_config: dict):
         self.debug = bool(app_config.get("debug", False))
 
-        # Configuración
         self.max_render_distance = 15.0
         self.sprite_scale_base = 200.0
         self.min_sprite_size = 30
 
-        # Cargar texturas con SpriteList
         self.sprite_pool = self._create_sprite_pool()
 
-        # Cache de direcciones calculadas para evitar cambios bruscos
-        self.ai_direction_cache = {}
-        self.direction_smoothing = 0.3  # Segundos antes de cambiar dirección
-        self.last_direction_update = {}
-
     def _create_sprite_pool(self) -> dict:
-        """Crea pool de sprites con texturas cargadas correctamente"""
+        """Carga sprites con fallback a 4 direcciones"""
         pool = {}
 
-        sprite_paths = {
-            "down": "assets/images/ai_cyclist_down.png",
-            "up": "assets/images/ai_cyclist_up.png",
-            "left": "assets/images/ai_cyclist_left.png",
-            "right": "assets/images/ai_cyclist_right.png"
+        directions_8 = ["down", "down_right", "right", "up_right",
+                        "up", "up_left", "left", "down_left"]
+
+        fallback_map = {
+            "down_right": "right",
+            "up_right": "right",
+            "up_left": "left",
+            "down_left": "left"
         }
 
-        for direction, path in sprite_paths.items():
-            try:
-                if Path(path).exists():
-                    # Crear sprite list para esta dirección
-                    sprite_list = arcade.SpriteList()
+        for direction in directions_8:
+            path = f"assets/images/ai_cyclist_{direction}.png"
 
-                    # Crear pool de sprites (máximo 10 AIs simultáneos)
-                    sprites = []
-                    for _ in range(10):
-                        sprite = arcade.Sprite(path)
-                        sprites.append(sprite)
-
-                    pool[direction] = {
-                        'sprites': sprites,
-                        'list': sprite_list,
-                        'index': 0
-                    }
-
-                    if self.debug:
-                        test_sprite = arcade.Sprite(path)
-                        print(f"[AISpriteRenderer] ✅ {direction}: {test_sprite.width}x{test_sprite.height}px")
+            if Path(path).exists():
+                pool[direction] = self._load_sprite_data(path, direction)
+            elif direction in fallback_map:
+                fallback_dir = fallback_map[direction]
+                fallback_path = f"assets/images/ai_cyclist_{fallback_dir}.png"
+                if Path(fallback_path).exists():
+                    pool[direction] = self._load_sprite_data(fallback_path, direction)
                 else:
-                    if self.debug:
-                        print(f"[AISpriteRenderer] ❌ No encontrado: {path}")
                     pool[direction] = None
-
-            except Exception as e:
-                if self.debug:
-                    print(f"[AISpriteRenderer] ❌ Error cargando {direction}: {e}")
+            else:
                 pool[direction] = None
 
+        loaded = sum(1 for v in pool.values() if v is not None)
+        if self.debug:
+            print(f"[AI Sprites] Cargados: {loaded}/8 direcciones")
+
         return pool
+
+    def _load_sprite_data(self, path: str, direction: str) -> dict:
+        """Carga sprite"""
+        try:
+            sprite_list = arcade.SpriteList()
+            sprites = [arcade.Sprite(path) for _ in range(10)]
+
+            if self.debug:
+                test = arcade.Sprite(path)
+                print(f"[AI Sprites] ✅ {direction}: {test.width}x{test.height}px")
+
+            return {'sprites': sprites, 'list': sprite_list, 'index': 0}
+        except Exception as e:
+            if self.debug:
+                print(f"[AI Sprites] ❌ {direction}: {e}")
+            return None
 
     def render_ai_in_world(self,
                            ai_players: List[Any],
@@ -79,216 +78,148 @@ class AISpriteRenderer:
                            screen_height: int,
                            fov: float,
                            delta_time: float = 0.016):
-        """
-        Renderiza todos los AI players visibles
-        """
-        # Limpiar sprite lists y resetear índices
-        for direction_data in self.sprite_pool.values():
-            if direction_data:
-                direction_data['list'].clear()
-                direction_data['index'] = 0
+        """Renderiza AIs visibles desde perspectiva del jugador"""
+
+        # Reset
+        for data in self.sprite_pool.values():
+            if data:
+                data['list'].clear()
+                data['index'] = 0
 
         if not ai_players:
             return
 
-        # Calcular AIs visibles con distancias
-        visible_ais = []
-
+        # Calcular visibles
+        visible = []
         for ai in ai_players:
             dx = ai.x - player_x
             dy = ai.y - player_y
-            distance = math.sqrt(dx * dx + dy * dy)
+            dist = math.sqrt(dx * dx + dy * dy)
 
-            # Filtrar por distancia
-            if distance > self.max_render_distance or distance < 0.1:
+            if dist > self.max_render_distance or dist < 0.1:
                 continue
 
-            # Calcular ángulo relativo al jugador
             angle_to_ai = math.atan2(dy, dx)
-            relative_angle = self._normalize_angle(angle_to_ai - player_angle)
+            rel_angle = self._normalize_angle(angle_to_ai - player_angle)
 
-            # Verificar si está dentro del FOV (con margen)
-            half_fov = fov / 2.0
-            if abs(relative_angle) <= half_fov + 0.4:
-                visible_ais.append((distance, ai, relative_angle, angle_to_ai))
+            if abs(rel_angle) <= fov / 2 + 0.4:
+                visible.append((dist, ai, rel_angle, angle_to_ai))
 
-        # Ordenar por distancia (más lejano primero para correcta superposición)
-        visible_ais.sort(key=lambda x: x[0], reverse=True)
+        # Ordenar por distancia
+        visible.sort(key=lambda x: x[0], reverse=True)
 
+        # Configurar sprites
+        for dist, ai, rel_angle, angle_to_ai in visible:
+            self._setup_sprite(ai, dist, rel_angle, angle_to_ai, player_angle,
+                               screen_width, screen_height, fov)
 
+        # Dibujar
+        for data in self.sprite_pool.values():
+            if data and data['list']:
+                data['list'].draw()
 
-        # Configurar cada AI sprite
-        for distance, ai, relative_angle, angle_to_ai in visible_ais:
-            self._setup_ai_sprite(
-                ai, distance, relative_angle, angle_to_ai,
-                screen_width, screen_height, fov, delta_time
-            )
+    def _setup_sprite(self, ai: Any, distance: float, relative_angle: float,
+                      angle_to_ai: float, player_angle: float,
+                      screen_width: int, screen_height: int, fov: float):
+        """Configura sprite con dirección relativa al jugador"""
 
-        # Dibujar todos los sprite lists
-        for direction_data in self.sprite_pool.values():
-            if direction_data and direction_data['list']:
-                direction_data['list'].draw()
+        # Calcular qué dirección del sprite mostrar basado en:
+        # 1. Dirección de movimiento del AI
+        # 2. Desde dónde lo ve el jugador
+        direction = self._calculate_sprite_direction_relative_to_player(
+            ai, angle_to_ai, player_angle
+        )
 
-    def _setup_ai_sprite(self, ai: Any, distance: float, relative_angle: float,
-                         angle_to_ai: float, screen_width: int, screen_height: int,
-                         fov: float, delta_time: float):
-        """Configura un sprite para renderizar un AI"""
-
-        # Calcular dirección del sprite basada en el ángulo HACIA el AI desde el jugador
-        # Esto hace que el sprite mire correctamente según la perspectiva del jugador
-        direction = self._calculate_sprite_direction(ai, angle_to_ai, delta_time)
-
-        # Verificar que tenemos pool para esta dirección
-        direction_data = self.sprite_pool.get(direction)
-        if not direction_data:
-            if self.debug:
-                print(f"[AISpriteRenderer] ⚠️ No hay sprites para dirección: {direction}")
+        data = self.sprite_pool.get(direction)
+        if not data:
             return
 
-        # Obtener sprite del pool
-        pool = direction_data['sprites']
-        idx = direction_data['index']
-
-        if idx >= len(pool):
-            if self.debug:
-                print(f"[AISpriteRenderer] ⚠️ Pool agotado para {direction}")
+        idx = data['index']
+        if idx >= len(data['sprites']):
             return
 
-        sprite = pool[idx]
-        direction_data['index'] = idx + 1
+        sprite = data['sprites'][idx]
+        data['index'] = idx + 1
 
-        # Calcular posición en pantalla (X)
-        normalized_angle = relative_angle / fov
-        screen_x = (normalized_angle + 0.5) * screen_width
+        # Posición X
+        norm_angle = relative_angle / fov
+        screen_x = (norm_angle + 0.5) * screen_width
 
-        # Calcular tamaño con perspectiva
-        # Aumentar el tamaño base ya que los sprites son 30x30
-        perspective_height = self.sprite_scale_base / max(distance, 0.5)
-        sprite_height = max(self.min_sprite_size, int(perspective_height))
+        # Tamaño con perspectiva
+        height = self.sprite_scale_base / max(distance, 0.5)
+        height = max(self.min_sprite_size, min(int(height), screen_height // 3))
 
-        # Limitar tamaño máximo
-        sprite_height = min(sprite_height, screen_height // 3)
+        # Escala
+        scale = height / sprite.texture.height if sprite.texture else 1.0
 
-        # Calcular escala
-        original_height = sprite.texture.height if sprite.texture else 30
-        scale = sprite_height / original_height if original_height > 0 else 1.0
+        # Posición Y (horizonte)
+        screen_y = screen_height // 2
 
-        # Posición Y: El sprite debe estar en el horizonte (centro vertical)
-        horizon = screen_height // 2
-        screen_y = horizon  # Centrado en el horizonte
-
-        # Configurar sprite
+        # Configurar
         sprite.center_x = screen_x
         sprite.center_y = screen_y
         sprite.scale = scale
-
-        # NO aplicar tint de color, usar color blanco para mantener colores originales
         sprite.color = (255, 255, 255)
+        sprite.alpha = int(255 * max(0.5, 1.0 - distance / self.max_render_distance))
 
-        # Alpha basado en distancia
-        distance_factor = max(0.5, 1.0 - (distance / self.max_render_distance))
-        sprite.alpha = int(255 * distance_factor)
+        data['list'].append(sprite)
 
-        # Agregar a la lista de renderizado
-        direction_data['list'].append(sprite)
-
-        # Debug: mostrar info del AI
+        # Debug
         if self.debug:
-            difficulty = getattr(ai, 'difficulty', 'easy')
+            colors = {'easy': arcade.color.GREEN, 'medium': arcade.color.ORANGE, 'hard': arcade.color.RED}
+            diff = getattr(ai, 'difficulty', 'easy')
+            arcade.draw_circle_filled(screen_x, screen_y + height // 2 + 5, 3, colors.get(diff, arcade.color.WHITE))
 
-            # Color de debug según dificultad
-            if difficulty == 'easy':
-                debug_color = arcade.color.GREEN
-            elif difficulty == 'medium':
-                debug_color = arcade.color.ORANGE
-            else:
-                debug_color = arcade.color.RED
-
-            # Texto de debug sobre el sprite
-            arcade.draw_text(
-                f"{difficulty[0].upper()}\n{distance:.1f}m\n{direction}",
-                screen_x, screen_y + sprite_height // 2 + 5,
-                debug_color, 9,
-                anchor_x="center", bold=True
-            )
-
-            # Borde para visualizar hitbox
-            half_w = (sprite.width * scale) / 2
-            half_h = (sprite.height * scale) / 2
-            arcade.draw_lrbt_rectangle_outline(
-                screen_x - half_w, screen_x + half_w,
-                screen_y - half_h, screen_y + half_h,
-                debug_color, 1
-            )
-
-    def _calculate_sprite_direction(self, ai: Any, angle_to_ai: float,
-                                    delta_time: float) -> str:
+    def _calculate_sprite_direction_relative_to_player(self, ai: Any,
+                                                       angle_to_ai: float,
+                                                       player_angle: float) -> str:
         """
-        Calcula qué sprite usar basado en el ángulo hacia el AI.
-        Incluye suavizado para evitar cambios bruscos.
+        Calcula qué sprite mostrar basado en:
+        - La dirección de movimiento del AI
+        - Desde qué ángulo el jugador ve al AI
 
-        El ángulo representa desde dónde el jugador ve al AI:
-        - 0° (derecha): AI está a la derecha del jugador
-        - 90° (arriba): AI está arriba del jugador
-        - 180° (izquierda): AI está a la izquierda
-        - 270° (abajo): AI está abajo del jugador
+        Esto hace que el sprite se vea natural desde la perspectiva del jugador.
         """
 
-        ai_id = id(ai)
-        current_time = getattr(ai, '_last_update_time', 0)
+        # Obtener ángulo de movimiento del AI
+        ai_movement_angle = getattr(ai, 'angle', 0.0)
 
-        # Convertir ángulo a grados
-        angle_deg = math.degrees(angle_to_ai)
+        # Calcular la diferencia entre:
+        # - Hacia dónde se mueve el AI (ai_movement_angle)
+        # - Desde dónde lo ve el jugador (angle_to_ai + 180°)
 
-        # Normalizar a 0-360
+        # El jugador ve al AI desde angle_to_ai
+        # Pero queremos saber en qué dirección relativa se mueve el AI
+        view_angle = angle_to_ai + math.pi  # Invertir para perspectiva del jugador
+
+        # Diferencia entre movimiento del AI y vista del jugador
+        relative_movement = self._normalize_angle(ai_movement_angle - view_angle)
+
+        # Convertir a grados
+        angle_deg = math.degrees(relative_movement)
         while angle_deg < 0:
             angle_deg += 360
-        while angle_deg >= 360:
-            angle_deg -= 360
 
-        # Determinar dirección del sprite basado en desde dónde se ve el AI
-        # Si el AI está arriba del jugador (90°), mostramos sprite "up"
-        # Si está abajo (270°), mostramos "down"
-        # Si está a la derecha (0°), mostramos "right"
-        # Si está a la izquierda (180°), mostramos "left"
-
-        if 45 <= angle_deg < 135:
-            new_direction = "up"  # AI está arriba
-        elif 135 <= angle_deg < 225:
-            new_direction = "left"  # AI está a la izquierda
-        elif 225 <= angle_deg < 315:
-            new_direction = "down"  # AI está abajo
+        # Mapear a 8 direcciones (o 4 con fallback)
+        if 337.5 <= angle_deg or angle_deg < 22.5:
+            return "up"  # Alejándose del jugador
+        elif 22.5 <= angle_deg < 67.5:
+            return "up_right"
+        elif 67.5 <= angle_deg < 112.5:
+            return "right"  # Moviéndose a la derecha
+        elif 112.5 <= angle_deg < 157.5:
+            return "down_right"
+        elif 157.5 <= angle_deg < 202.5:
+            return "down"  # Acercándose al jugador
+        elif 202.5 <= angle_deg < 247.5:
+            return "down_left"
+        elif 247.5 <= angle_deg < 292.5:
+            return "left"  # Moviéndose a la izquierda
         else:
-            new_direction = "right"  # AI está a la derecha
-
-        # Suavizado: solo cambiar si ha pasado suficiente tiempo
-        if ai_id in self.ai_direction_cache:
-            cached_direction = self.ai_direction_cache[ai_id]
-            last_change = self.last_direction_update.get(ai_id, 0)
-
-            # Si la dirección cambió, verificar tiempo
-            if new_direction != cached_direction:
-                time_since_change = current_time - last_change
-
-                # Solo cambiar si ha pasado suficiente tiempo
-                if time_since_change >= self.direction_smoothing:
-                    self.ai_direction_cache[ai_id] = new_direction
-                    self.last_direction_update[ai_id] = current_time
-                else:
-                    # Mantener dirección anterior
-                    new_direction = cached_direction
-            else:
-                # Misma dirección, actualizar tiempo
-                self.last_direction_update[ai_id] = current_time
-        else:
-            # Primera vez que vemos este AI
-            self.ai_direction_cache[ai_id] = new_direction
-            self.last_direction_update[ai_id] = current_time
-
-        return new_direction
+            return "up_left"
 
     def _normalize_angle(self, angle: float) -> float:
-        """Normaliza ángulo a rango -π a π"""
+        """Normaliza ángulo a -π a π"""
         while angle > math.pi:
             angle -= 2 * math.pi
         while angle < -math.pi:
