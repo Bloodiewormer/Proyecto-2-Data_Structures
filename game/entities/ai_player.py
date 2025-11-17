@@ -149,23 +149,32 @@ class AIPlayer(Player):
         while angle_deg >= 360:
             angle_deg -= 360
 
-        # 8 direcciones (45° cada sector)
+        # DEBUG TEMPORAL: Ver qué ángulos llegan
+        if self.debug and hasattr(self, '_last_sprite_debug'):
+            if abs(angle_deg - self._last_sprite_debug) > 10:
+                print(f"[AI-{self.difficulty}] Angulo: {angle_deg:.1f} grados")
+                self._last_sprite_debug = angle_deg
+        elif not hasattr(self, '_last_sprite_debug'):
+            self._last_sprite_debug = angle_deg
+
+        # Sistema de coordenadas: Y crece hacia abajo
+        # atan2(dy, dx): 0 = derecha, 90 = abajo, -90 = arriba, 180 = izquierda
         if 337.5 <= angle_deg or angle_deg < 22.5:
             self.current_direction = "right"
         elif 22.5 <= angle_deg < 67.5:
-            self.current_direction = "up_right"
+            self.current_direction = "down_right"
         elif 67.5 <= angle_deg < 112.5:
-            self.current_direction = "up"
+            self.current_direction = "down"
         elif 112.5 <= angle_deg < 157.5:
-            self.current_direction = "up_left"
+            self.current_direction = "down_left"
         elif 157.5 <= angle_deg < 202.5:
             self.current_direction = "left"
         elif 202.5 <= angle_deg < 247.5:
-            self.current_direction = "down_left"
+            self.current_direction = "up_left"
         elif 247.5 <= angle_deg < 292.5:
-            self.current_direction = "down"
+            self.current_direction = "up"
         else:
-            self.current_direction = "down_right"
+            self.current_direction = "up_right"
 
     # ==================== EVITACIÓN DE PAREDES ====================
 

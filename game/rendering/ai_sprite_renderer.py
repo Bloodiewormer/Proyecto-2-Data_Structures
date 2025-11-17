@@ -200,23 +200,23 @@ class AISpriteRenderer:
         while angle_deg < 0:
             angle_deg += 360
 
-        # Mapear a 8 direcciones (o 4 con fallback)
+        # Mapear a 8 direcciones con up/down y left/right invertidos
         if 337.5 <= angle_deg or angle_deg < 22.5:
-            return "up"  # Alejándose del jugador
+            return "down"
         elif 22.5 <= angle_deg < 67.5:
-            return "up_right"
-        elif 67.5 <= angle_deg < 112.5:
-            return "right"  # Moviéndose a la derecha
-        elif 112.5 <= angle_deg < 157.5:
-            return "down_right"
-        elif 157.5 <= angle_deg < 202.5:
-            return "down"  # Acercándose al jugador
-        elif 202.5 <= angle_deg < 247.5:
             return "down_left"
-        elif 247.5 <= angle_deg < 292.5:
-            return "left"  # Moviéndose a la izquierda
-        else:
+        elif 67.5 <= angle_deg < 112.5:
+            return "left"
+        elif 112.5 <= angle_deg < 157.5:
             return "up_left"
+        elif 157.5 <= angle_deg < 202.5:
+            return "up"
+        elif 202.5 <= angle_deg < 247.5:
+            return "up_right"
+        elif 247.5 <= angle_deg < 292.5:
+            return "right"
+        else:
+            return "down_right"
 
     def _normalize_angle(self, angle: float) -> float:
         """Normaliza ángulo a -π a π"""
