@@ -89,8 +89,9 @@
         "enable_visual_effects": true
     },
     "ai": {
-        "enabled": true,
-        "difficulty": "medium"
+      "enabled": true,
+      "difficulty": "medium",
+      "sprite_scale": 100,
+      "max_render_distance": 15
     }
-
 }

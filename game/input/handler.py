@@ -92,7 +92,6 @@ class InputHandler:
             if game.player:
                 current_time = time.time()
                 if game.player.undo(current_time):
-
                     undo_stats = game.player.get_undo_stats()
                     remaining = undo_stats['available_undos']
                     game.show_notification(f" paso deshecho ({remaining} restantes)", 1.5)

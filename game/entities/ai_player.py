@@ -1,4 +1,6 @@
 from __future__ import annotations
+import math
+from typing import Optional, Tuple
 from typing import Optional, Tuple, Dict
 import time
 
@@ -72,6 +74,10 @@ class AIPlayer(Player):
 
         self.strategy: BaseStrategy = strategy or self._build_default_strategy(self.difficulty)
 
+        # Sistema de sprites direccionales
+        self.sprite_textures = {}
+        self.current_direction = "down"  # down, up, left, right
+
     def _build_default_strategy(self, difficulty: str) -> BaseStrategy:
         host = self.world or self
         if difficulty == "easy":
@@ -85,6 +91,32 @@ class AIPlayer(Player):
     def set_strategy(self, strategy: BaseStrategy):
         self.strategy = strategy
 
+    def _calculate_direction_from_step(self, dx: int, dy: int):
+        """Calcula el ángulo y la dirección del sprite basado en el paso"""
+        if dx == 0 and dy == 0:
+            return
+
+        # Calcular ángulo basado en el movimiento
+        target_angle = math.atan2(dy, dx)
+        self.angle = target_angle
+
+        # Determinar dirección del sprite (4 direcciones)
+        angle_deg = math.degrees(target_angle)
+
+        # Normalizar ángulo a 0-360
+        if angle_deg < 0:
+            angle_deg += 360
+
+        # Dividir en 4 cuadrantes
+        if 45 <= angle_deg < 135:
+            self.current_direction = "up"  # Norte
+        elif 135 <= angle_deg < 225:
+            self.current_direction = "left"  # Oeste
+        elif 225 <= angle_deg < 315:
+            self.current_direction = "down"  # Sur
+        else:
+            self.current_direction = "right"  # Este
+
     def _apply_step(self, dx: int, dy: int, game):
         if dx == 0 and dy == 0:
             self._current_step = (0, 0)
@@ -92,12 +124,31 @@ class AIPlayer(Player):
         city = getattr(game, "city", None)
         if not city:
             return
-        nx = self.x + dx
-        ny = self.y + dy
-        if not city.is_wall(nx, self.y):
-            self.x = nx
-        if not city.is_wall(self.x, ny):
-            self.y = ny
+
+        # Actualizar dirección y ángulo
+        self._calculate_direction_from_step(dx, dy)
+
+        # Normalizar el vector de movimiento
+        magnitude = math.sqrt(dx * dx + dy * dy)
+        if magnitude > 0:
+            norm_dx = dx / magnitude
+            norm_dy = dy / magnitude
+        else:
+            norm_dx, norm_dy = 0, 0
+
+        # Obtener delta_time del game (aproximado si no existe)
+        delta_time = getattr(game, '_last_delta_time', 1 / 60.0)
+
+        # Usar el método move() heredado que aplica:
+        # - Velocidad efectiva con penalizaciones
+        # - Consumo de stamina
+        # - Detección de colisiones
+        # - Estados de fatiga
+        # - Efectos del clima
+        # - Peso del inventario
+        # - Surface weight
+        self.move(norm_dx, norm_dy, delta_time, city)
+
         self._current_step = (dx, dy)
 
     def _handle_order_state_transitions(self, game):
@@ -188,12 +239,25 @@ class AIPlayer(Player):
     def update(self, delta_time: float):
         super().update(delta_time)
 
+        # Aplicar efectos del clima al AI
+        if self.world and hasattr(self.world, 'weather_system') and self.world.weather_system:
+            weather_info = self.world.weather_system.get_weather_info()
+            self.weather_speed_multiplier = weather_info.get('speed_multiplier', 1.0)
+            self.weather_stamina_drain = weather_info.get('stamina_drain', 0.0)
+
     def update_with_strategy(self, game):
         # limpiar seen timestamps de pedidos que ya no existen
         self._prune_seen_orders(game)
 
         if not self.strategy:
             return
+
+        # Verificar si el AI puede moverse (no está exhausto)
+        if not self.can_move():
+            # Si está exhausto, no mover pero sí recuperar stamina
+            self._current_step = (0, 0)
+            return
+
         try:
             if hasattr(self.strategy, "world"):
                 self.strategy.world.city = getattr(game, "city", None)
@@ -214,6 +278,9 @@ class AIPlayer(Player):
         """
         Modo con cooldown (cada ~0.5s); reduce costo si HardStrategy hace A* frecuente.
         """
+        # Guardar delta_time para uso en _apply_step
+        game._last_delta_time = delta_time
+
         self.update(delta_time)
         self._decision_cooldown -= delta_time
         if self._decision_cooldown <= 0:
@@ -225,5 +292,17 @@ class AIPlayer(Player):
         Decisiones cada frame (más reactivo, más costoso).
         Usa update_ai si prefieres throttling.
         """
+        # Guardar delta_time para uso en _apply_step
+        game._last_delta_time = delta_time
+
         self.update(delta_time)
         self.update_with_strategy(game)
+
+    def get_sprite_direction(self) -> str:
+        """Retorna la dirección actual del sprite"""
+        return self.current_direction
+
+    def get_direction_index(self) -> int:
+        """Retorna índice de dirección para arrays (0=down, 1=up, 2=left, 3=right)"""
+        directions = {"down": 0, "up": 1, "left": 2, "right": 3}
+        return directions.get(self.current_direction, 0)

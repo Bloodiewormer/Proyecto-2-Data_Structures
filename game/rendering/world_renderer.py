@@ -304,7 +304,15 @@ class RayCastRenderer:
                 draw_rect(span_left_px, last_right, bottom, top, park_col)
 
     # ---------- Public world render ----------
-    def render_world(self, player: Any, weather_system: Any = None):
+    def render_world(self, player, weather_system=None, delta_time=0.016):
+        """
+        Renderiza el mundo 3D completo
+
+        Args:
+            player: Objeto del jugador
+            weather_system: Sistema de clima (opcional)
+            delta_time: Tiempo desde el último frame (default: 0.016 = 60fps)
+        """
         win = arcade.get_window()
         if not win:
             return
@@ -337,6 +345,41 @@ class RayCastRenderer:
         t_walls = time.perf_counter()
         self._perf_accum["walls"] += (t_walls - t0)
 
+        # ============ RENDERIZAR AI PLAYERS ============
+        t0 = time.perf_counter()
+        if hasattr(win, 'ai_players') and win.ai_players:
+            # Inicializar renderer de AIs si no existe
+            if not hasattr(self, 'ai_sprite_renderer'):
+                try:
+                    from game.rendering.ai_sprite_renderer import AISpriteRenderer
+                    self.ai_sprite_renderer = AISpriteRenderer({"debug": self.debug})
+                    if self.debug:
+                        print("[WorldRenderer] AI Sprite Renderer inicializado")
+                except Exception as e:
+                    if self.debug:
+                        print(f"[WorldRenderer] Error inicializando AI renderer: {e}")
+                    self.ai_sprite_renderer = None
+
+            # Renderizar AIs
+            if self.ai_sprite_renderer:
+                try:
+                    self.ai_sprite_renderer.render_ai_in_world(
+                        win.ai_players,
+                        px, py, pang,
+                        width, height,
+                        self.fov,
+                        delta_time
+                    )
+                except Exception as e:
+                    if self.debug:
+                        print(f"[WorldRenderer] Error renderizando AIs: {e}")
+
+        t_ai = time.perf_counter()
+        if "ai" not in self._perf_accum:
+            self._perf_accum["ai"] = 0.0
+        self._perf_accum["ai"] += (t_ai - t0)
+        # ===============================================
+
         self._perf_accum["frames"] += 1
         now = time.perf_counter()
         if now - self._last_perf_report > 2.0 and self.debug:
@@ -344,9 +387,11 @@ class RayCastRenderer:
             clouds_ms = (self._perf_accum["clouds"] / f) * 1000
             walls_ms = (self._perf_accum["walls"] / f) * 1000
             floor_ms = (self._perf_accum["floor"] / f) * 1000
-            total_ms = clouds_ms + walls_ms + floor_ms
-            print(f"[RendPerf] clouds={clouds_ms:.2f}ms walls={walls_ms:.2f}ms floor={floor_ms:.2f}ms total≈{total_ms:.2f}ms")
-            self._perf_accum = {"clouds": 0.0, "walls": 0.0, "floor": 0.0, "frames": 0}
+            ai_ms = (self._perf_accum.get("ai", 0.0) / f) * 1000
+            total_ms = clouds_ms + walls_ms + floor_ms + ai_ms
+            print(
+                f"[WorldRenderer] clouds:{clouds_ms:.2f}ms floor:{floor_ms:.2f}ms walls:{walls_ms:.2f}ms ai:{ai_ms:.2f}ms total:{total_ms:.2f}ms")
+            self._perf_accum = {"clouds": 0.0, "walls": 0.0, "floor": 0.0, "ai": 0.0, "frames": 0}
             self._last_perf_report = now
 
     def get_perf_snapshot(self):

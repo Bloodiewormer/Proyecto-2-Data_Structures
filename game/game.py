@@ -363,7 +363,13 @@ class CourierGame(arcade.Window):
     def _draw_game(self):
         if not self.renderer or not self.player:
             return
-        self.renderer.render_world(self.player, weather_system=self.weather_system)
+
+        # Obtener delta_time del último frame
+        delta_time = getattr(self, '_last_frame_delta', 0.016)
+
+        # Pasar delta_time al renderer
+        self.renderer.render_world(self.player, weather_system=self.weather_system, delta_time=delta_time)
+
         if self.minimap and self.player:
             self.minimap.render(10, 10, 160, self.player)
         self.hud.draw(self)
@@ -400,6 +406,7 @@ class CourierGame(arcade.Window):
     # ================= Update Loop =================
 
     def on_update(self, delta_time: float):
+        self._last_frame_delta = delta_time
         self.notifications.update(delta_time)
 
         if self.state_manager.current_state == GameState.SETTINGS:
@@ -445,11 +452,17 @@ class CourierGame(arcade.Window):
 
         self.player.update(delta_time)
 
-        if hasattr(self, 'ai_manager') and self.ai_manager:
-            try:
-                self.ai_manager.update(delta_time)
-            except Exception:
-                pass
+        if hasattr(self, 'ai_players') and self.ai_players:
+            for ai in self.ai_players:
+                ai.update_ai(delta_time, self)
+
+                # Procesar entregas para AIs
+                if hasattr(self, 'delivery_system') and self.delivery_system:
+                    self.delivery_system.process(
+                        ai,
+                        self.pickup_radius,
+                        lambda msg: None  # AIs no muestran notificaciones
+                    )
 
         self.delivery_system.process(self.player, getattr(self, "pickup_radius", 1.5), self.show_notification)
 
