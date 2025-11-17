@@ -20,13 +20,13 @@ class GameRules:
 
     def _check_ai_monopoly(self, game):
         """
-        Determina si alguna IA ha COMPLETADO todos los pedidos del juego.
+        Determina si alguna IA ha GANADO alcanzando la meta monetaria.
+
         Condiciones para victoria de IA:
-        - No hay pending_orders disponibles.
-        - El jugador no tiene pedidos activos.
-        - Existe una IA que ha ENTREGADO (delivered) todos sus pedidos.
-        - La IA tiene al menos 1 entrega completada.
-        Retorna la IA ganadora o None.
+        1. La IA debe alcanzar goal_earnings (igual que el jugador)
+        2. La IA con mayor earnings gana si varias alcanzan la meta
+
+        NO importa si quedan pedidos pendientes.
         """
         try:
             if self._ai_victory_triggered:
@@ -36,29 +36,30 @@ class GameRules:
             if not getattr(game, "ai_players", None):
                 return None
 
-            # CRÍTICO: Solo verificar monopolio si NO hay pedidos pendientes
-            if game.pending_orders:
-                return None
+            # Obtener meta monetaria
+            cfg = self._get_cfg()
+            goal_earnings = float(cfg.goal_earnings)
 
-            # CRÍTICO: Solo verificar si el jugador NO tiene pedidos activos
-            if getattr(game.player, "inventory", None) and game.player.inventory.orders:
-                return None
+            # Buscar IA que haya alcanzado la meta
+            winner_ai = None
+            max_earnings = 0.0
 
-            # Buscar IA ganadora: debe tener todos sus pedidos ENTREGADOS y al menos 1 entrega
             for ai in game.ai_players:
-                inv = getattr(ai, "inventory", None)
+                ai_earnings = getattr(ai, "earnings", 0.0)
 
-                # La IA ganadora NO debe tener pedidos activos
-                if inv and inv.orders:
-                    continue
+                # Verificar si alcanzó la meta
+                if ai_earnings >= goal_earnings:
+                    if ai_earnings > max_earnings:
+                        max_earnings = ai_earnings
+                        winner_ai = ai
 
+            return winner_ai
 
-                deliveries = getattr(ai, "deliveries_completed", 0)
-                if deliveries >= 1:
-                    # Esta IA completó sus entregas y no quedan pedidos disponibles
-                    return ai
-
+        except Exception as e:
+            if getattr(game, 'debug', False):
+                print(f"[GameRules] Error en _check_ai_monopoly: {e}")
             return None
+
         except Exception as e:
             if getattr(game, 'debug', False):
                 print(f"[GameRules] Error en _check_ai_monopoly: {e}")
