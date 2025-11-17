@@ -399,7 +399,7 @@ class AIPlayer(Player):
                 self.current_velocity[1] = 0
 
             self._current_step = (0, 0)
-            self.is_moving = False  # CRÍTICO: Marcar que NO se está moviendo
+            self.is_moving = False  # Ya está en línea 402 ✅
             return
 
         # Guardar posición previa para calcular distancia real

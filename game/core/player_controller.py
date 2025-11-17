@@ -43,6 +43,8 @@ class PlayerController:
 
         if dx != 0.0 or dy != 0.0:
             player.move(dx, dy, delta_time, city)
+        else:
+            player.is_moving = False
 
         moved = (abs(player.x - prev_x) > 1e-5) or (abs(player.y - prev_y) > 1e-5)
         if moved:
