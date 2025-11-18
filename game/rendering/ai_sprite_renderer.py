@@ -61,12 +61,12 @@ class AISpriteRenderer:
 
             if self.debug:
                 test = arcade.Sprite(path)
-                print(f"[AI Sprites] ✅ {direction}: {test.width}x{test.height}px")
+                print(f"[AI Sprites]  {direction}: {test.width}x{test.height}px")
 
             return {'sprites': sprites, 'list': sprite_list, 'index': 0}
         except Exception as e:
             if self.debug:
-                print(f"[AI Sprites] ❌ {direction}: {e}")
+                print(f"[AI Sprites]  {direction}: {e}")
             return None
 
     def render_ai_in_world(self,
