@@ -92,6 +92,7 @@ class AIPlayer(Player):
         # Cooldown para recuperación de stamina
         self.stamina_recovery_cooldown = 1.5
         self.time_since_stopped = 0.0
+        self._last_order_accept_time = -999.0
 
     def _build_default_strategy(self, difficulty: str) -> BaseStrategy:
         """Construye la estrategia según dificultad"""
@@ -691,25 +692,30 @@ class AIPlayer(Player):
         return self.current_direction
 
     def try_accept_order_with_delay(self, order, current_time: float) -> bool:
-        """
-        Intenta aceptar un pedido respetando cooldown entre aceptaciones.
-        El cooldown es configurable por dificultad desde config.json.
-        """
         if not hasattr(self, '_last_order_accept_time'):
-            self._last_order_accept_time = 0.0
+            self._last_order_accept_time = -999.0  # Valor muy negativo
 
-        # Obtener cooldown desde config
-        cooldown = 2.0  # Default
+        cooldown = 2.0
         if self.world and hasattr(self.world, 'app_config'):
             ai_config = self.world.app_config.get('ai', {})
             cooldowns = ai_config.get('order_accept_cooldown', {})
             cooldown = float(cooldowns.get(self.difficulty, 2.0))
 
-        if (current_time - self._last_order_accept_time) < cooldown:
+        time_diff = current_time - self._last_order_accept_time
+
+        # AGREGAR ESTE LOG TEMPORAL:
+        if self.debug:
+            print(f"[AI-{self.difficulty}] Intentando aceptar: current={current_time:.2f}, "
+                  f"last={self._last_order_accept_time:.2f}, diff={time_diff:.2f}, "
+                  f"cooldown={cooldown:.2f}, rechaza={time_diff < cooldown}")
+
+        if time_diff < cooldown:
             return False
 
         if self.add_order_to_inventory(order):
             self._last_order_accept_time = current_time
+            if self.debug:
+                print(f"[AI-{self.difficulty}] ACEPTADO en t={current_time:.2f}")
             return True
 
         return False
