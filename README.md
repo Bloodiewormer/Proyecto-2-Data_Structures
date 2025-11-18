@@ -36,9 +36,12 @@
 
 ## Descripción del Proyecto
 
-**Courier Quest** es un videojuego desarrollado en Python utilizando la librería **Arcade 3.3.2**. El jugador controla a un repartidor en bicicleta que debe completar pedidos en una ciudad simulada, gestionando factores como tiempo de entrega, clima dinámico, resistencia física y reputación.
+**Courier Quest** es un videojuego desarrollado en Python utilizando la librería **Arcade 3.3.2**. El jugador controla a un repartidor en bicicleta que debe completar pedidos en una ciudad simulada, compitiendo contra un jugador CPU con inteligencia artificial que tiene tres niveles de dificultad.
 
-El proyecto implementa diversos conceptos de estructuras de datos lineales y no lineales, algoritmos de ordenamiento y búsqueda, gestión de archivos (JSON y binarios), integración con API REST, sistema de ray-casting para renderizado 3D estilo Wolfenstein, y jugadores controlados por IA con tres niveles de dificultad.
+El proyecto implementa diversos conceptos de estructuras de datos lineales y no lineales (colas, pilas, árboles, grafos, colas de prioridad), algoritmos de ordenamiento y búsqueda (A*, BFS, Greedy), gestión de archivos (JSON y binarios), integración con API REST, y sistemas de IA con diferentes estrategias de decisión.
+
+**Proyecto 1:** Sistema base del juego con mecánicas de jugabilidad, clima dinámico, gestión de resistencia y reputación.
+**Proyecto 2:** Implementación de jugador CPU con tres niveles de dificultad (Fácil, Media, Difícil) utilizando diferentes algoritmos de búsqueda y toma de decisiones.
 
 ![img.png](assets/images/Gameplay.png)
 
@@ -57,8 +60,8 @@ El proyecto implementa diversos conceptos de estructuras de datos lineales y no 
 ### Instalación
 ```bash
 # Clonar el repositorio
-git clone https://github.com/usuario/courier-quest.git
-cd courier-quest
+git clone https://github.com/Bloodiewormer/Proyecto-2-Data_Structures.git
+cd Proyecto-2-Data_Structures
 
 # Instalar dependencias
 pip install -r requirements.txt
@@ -239,188 +242,144 @@ El jugador puede deshacer hasta **50 pasos** anteriores:
 
 ### Descripción General
 
-El juego incluye un sistema completo de jugadores controlados por IA que compiten contra el jugador humano por los mismos pedidos. La IA tiene acceso a la misma información del mapa, clima y pedidos, y debe gestionar su propia stamina, reputación e inventario.
+El sistema de IA fue implementado como parte del **Proyecto 2**, introduciendo un jugador CPU que compite contra el humano por los mismos pedidos y la misma meta de ganancias. La IA tiene acceso a la misma información del mapa, clima y pedidos, y está sujeta a las mismas reglas de resistencia, reputación y capacidad de carga.
+
+**Objetivo del Proyecto 2:**
+- Aplicar estructuras lineales y no lineales (colas, árboles, grafos, colas de prioridad)
+- Implementar algoritmos de decisión y búsqueda adaptados al contexto del juego
+- Analizar la eficiencia de distintos enfoques de IA
+- Desarrollar un agente autónomo que se comporte de manera coherente y competitiva
+
+### Arquitectura del Sistema de IA
+
+```
+AIPlayer (hereda de Player)
+    ├── Strategy (decide qué hacer - nivel estratégico)
+    │   ├── EasyStrategy (decisiones aleatorias)
+    │   ├── MediumStrategy (evaluación greedy)
+    │   └── HardStrategy (planificación óptima)
+    │
+    ├── Policy (decide cómo moverse - nivel táctico)
+    │   ├── RandomChoicePolicy (movimiento probabilístico)
+    │   └── GreedyPolicy (evaluación heurística + BFS)
+    │
+    └── Planner (calcula rutas - nivel operacional)
+        └── AStarPlanner (pathfinding óptimo)
+```
 
 ### Niveles de Dificultad
 
-#### Fácil (Easy) - Random Choice Policy
+#### Fácil (Easy) - Heurística Aleatoria
+
+**Técnica utilizada:** Random Walk con sesgo direccional
+
+**Conceptos aplicados:** Listas, colas, control básico de movimiento
 
 **Comportamiento:**
-- Toma decisiones probabilísticas con 35% de sesgo hacia el objetivo
-- Elige direcciones aleatorias válidas evitando retroceder
-- 70% de acierto cuando intenta moverse hacia el objetivo
+- Toma decisiones probabilísticas simples
+- 35% de probabilidad de intentar moverse hacia el objetivo
+- 70% de acierto cuando intenta ir al objetivo
+- Elige direcciones aleatorias evitando retroceder
 - Gestión imprudente de stamina (ignora niveles bajos ocasionalmente)
+- Cooldown de aceptación de pedidos: 15 segundos
 
 **Implementación:**
-- **Estructura:** Cola simple para gestión de movimientos válidos
-- **Algoritmo:** Random Walk con sesgo direccional
-- **Complejidad:** O(1) por decisión
+- **Estructura:** Cola simple (lista) para gestión de movimientos válidos
+- **Algoritmo:** Random Choice con filtrado de dirección opuesta
+- **Complejidad temporal:** O(1) por decisión
+- **Complejidad espacial:** O(1)
 
-Archivo: `game/IA/policies/random_choice.py`
+**Archivo:** `game/IA/policies/random_choice.py`
+
 ```python
 def decide_step(self, ai: "AIPlayer") -> Tuple[int, int]:
+    """Decisión de movimiento con sesgo aleatorio"""
     # Obtener movimientos válidos (elimina retroceso)
     candidates = self._get_valid_moves(ai)
     
     # 35% de intentar ir hacia target
     if ai.current_target and random.random() < 0.35:
-        # 70% de acierto
+        # 70% de acierto al intentar acercarse
         if random.random() < 0.7:
             return self._best_move_to_target(candidates, ai.current_target)
     
-    # Movimiento aleatorio
-    return random.choice(candidates)
+    # Movimiento completamente aleatorio
+    return random.choice(candidates) if candidates else (0, 0)
 ```
 
-#### **Media (Medium) - Greedy Policy con BFS**
+**Características:**
+- No mantiene memoria de posiciones anteriores (sin detección de loops)
+- No evalúa costos de movimiento
+- Puede quedar atascada en esquinas sin recuperación automática
+- Ideal para jugadores principiantes
+
+---
+
+#### Media (Medium) - Evaluación Greedy con BFS
+
+**Técnica utilizada:** Búsqueda Greedy + BFS como respaldo
+
+**Conceptos aplicados:** Árboles de decisión, heurísticas, búsqueda en amplitud (BFS)
 
 **Comportamiento:**
-- Evalúa movimientos usando función heurística (distancia + clima + peso)
-- Usa BFS (Breadth-First Search) como respaldo cuando queda atascada
-- Considera el clima y peso del inventario en decisiones
-- Gestión conservadora de stamina
+- Evalúa movimientos usando función heurística multicriterio
+- Considera distancia al objetivo, clima y peso del inventario
+- Usa BFS cuando detecta atascamiento (3+ frames sin movimiento)
+- Gestión conservadora de stamina (descansa al llegar a 0, objetivo 40)
+- Cooldown de aceptación de pedidos: 7 segundos
 
 **Implementación:**
-- **Estructura:** Cola FIFO para BFS, lista para evaluación greedy
-- **Algoritmo:** Greedy best-first con pathfinding BFS
-- **Complejidad:**
-  - Greedy: O(n) donde n = vecinos válidos (4 máximo)
-  - BFS: O(V + E) donde V = celdas del mapa, E = conexiones
+- **Estructura:** Cola FIFO (deque) para BFS, lista para evaluación greedy
+- **Algoritmo:** Greedy best-first con pathfinding BFS de respaldo
+- **Complejidad temporal:**
+  - Greedy: O(n) donde n = vecinos válidos (máximo 4)
+  - BFS: O(V + E) donde V = celdas del mapa, E = conexiones entre celdas
+- **Complejidad espacial:** O(V) para almacenar visitados en BFS
 
-Archivo: `game/IA/policies/greedy.py`
+**Archivo:** `game/IA/policies/greedy.py`
+
 ```python
 def decide_step(self, ai: "AIPlayer") -> Tuple[int, int]:
-    # Detectar atascamiento (3+ frames sin movimiento)
+    """Decisión greedy con detección de atascamiento"""
+    # Detectar atascamiento (sin movimiento significativo en 10 frames)
     if self._detect_stuck():
         # Usar BFS para encontrar ruta alternativa
-        self._bfs_path = self._find_bfs_path(current_pos, target)
-    
+        if not self._bfs_path or len(self._bfs_path) == 0:
+            self._bfs_path = self._find_bfs_path(current_pos, target)
+        
     # Seguir path BFS si existe
-    if self._bfs_path:
-        return self._follow_path()
+    if self._bfs_path and len(self._bfs_path) > 0:
+        next_pos = self._bfs_path[0]
+        return self._follow_path_to(next_pos)
     
     # Evaluación greedy normal
     best_move = None
     best_score = float('inf')
     
-    for dx, dy in cardinal_directions:
+    for dx, dy in [(1,0), (-1,0), (0,1), (0,-1)]:
+        new_pos = (ai.x + dx, ai.y + dy)
+        
+        if not self._is_walkable(new_pos):
+            continue
+        
+        # Función heurística multicriterio
         score = (
-            manhattan_distance(new_pos, target) +
-            climate_penalty * 0.3 +
-            weight_penalty * 0.2
+            self._manhattan_distance(new_pos, target) +      # Distancia
+            self._climate_penalty() * 0.3 +                  # Clima adverso
+            self._weight_penalty(ai) * 0.2                   # Peso inventario
         )
+        
         if score < best_score:
             best_score = score
             best_move = (dx, dy)
     
-    return best_move
+    return best_move if best_move else (0, 0)
 ```
 
-#### Difícil (Hard) - A* Strategy
-
-Comportamiento:
-- Usa A* para calcular rutas óptimas considerando costos de superficie
-- Planifica secuencias de múltiples pedidos para maximizar ganancias
-- Replanifica dinámicamente cuando el clima empeora
-- Gestión inteligente de stamina con descansos estratégicos
-
-Implementación:
-- Estructura: Cola de prioridad (heap) para A*, grafo ponderado del mapa
-- Algoritmo: A* con heurística Manhattan
-- Complejidad: O((V + E) log V) donde V = nodos, E = aristas
-
-Archivos: 
-- `game/IA/planner/astar.py`
-- `game/IA/strategies/strategies.py` (HardStrategy)
-```python
-def replan(self, start: Tuple[int, int], goal: Tuple[int, int]) -> None:
-    """A* pathfinding con validación de esquinas"""
-    open_heap = []
-    heapq.heappush(open_heap, (0.0, start))
-    came_from = {}
-    g_score = {start: 0.0}
-    closed_set = set()
-    
-    while open_heap:
-        _, current = heapq.heappop(open_heap)
-        
-        if current in closed_set:
-            continue
-        closed_set.add(current)
-        
-        if current == goal:
-            break
-        
-        for neighbor in self._get_walkable_neighbors(current):
-            # Costo: distancia + peso de superficie
-            tentative_g = (g_score[current] + 
-                          self._step_cost(neighbor[0], neighbor[1]))
-            
-            if neighbor not in g_score or tentative_g < g_score[neighbor]:
-                g_score[neighbor] = tentative_g
-                f_score = tentative_g + self.heuristic(neighbor, goal)
-                heapq.heappush(open_heap, (f_score, neighbor))
-                came_from[neighbor] = current
-    
-    # Reconstruir path
-    self._path = self._reconstruct_path(came_from, start, goal)
-```
-
-**Evaluación de secuencias de pedidos:**
-```python
-def _evaluate_sequence(self, ai: "AIPlayer", orders, game) -> float:
-    total_payout = sum(order.payout for order in orders)
-    total_distance = 0.0
-    
-    current_pos = (int(ai.x + 0.5), int(ai.y + 0.5))
-    
-    for order in orders:
-        # Calcular ruta con A*
-        self.planner.replan(current_pos, order.pickup_pos)
-        path_len_pickup = len(self.planner._path)
-        
-        self.planner.replan(order.pickup_pos, order.dropoff_pos)
-        path_len_delivery = len(self.planner._path)
-        
-        total_distance += path_len_pickup + path_len_delivery
-        current_pos = order.dropoff_pos
-    
-    predicted_stamina_cost = self._predict_stamina_cost(ai, total_distance)
-    
-    # Calcular valor final
-    value = (
-        total_payout +
-        sum(o.priority * 50 for o in orders) -  # Bonus por prioridad
-        (total_distance * 0.5) -                 # Penalización por distancia
-        (predicted_stamina_cost * 2)             # Penalización por stamina
-    )
-    
-    return value
-```
-
-### Arquitectura de la IA
-
-```
-AIPlayer (hereda de Player)
-    ├── Strategy (decide qué hacer)
-    │   ├── EasyStrategy (random)
-    │   ├── MediumStrategy (greedy + BFS)
-    │   └── HardStrategy (A* + planificación)
-    │
-    ├── Policy (decide cómo moverse)
-    │   ├── RandomChoicePolicy
-    │   └── GreedyPolicy
-    │
-    └── Planner (calcula rutas)
-        └── AStarPlanner
-```
-
-### Sistema Anti-Atascamiento
-
-Todas las dificultades incluyen detección y recuperación de atascamiento:
+**Sistema anti-atascamiento:**
 ```python
 def _detect_stuck(self) -> bool:
-    """Detecta si la IA no se ha movido en los últimos 10 frames"""
+    """Detecta si no hay movimiento en los últimos 10 frames"""
     if len(self.position_history) < 10:
         return False
     
@@ -431,41 +390,166 @@ def _detect_stuck(self) -> bool:
     )
     
     return total_distance < 0.2  # Umbral de movimiento mínimo
-
-def _unstuck_maneuver(self, city) -> Tuple[float, float]:
-    """Maniobra de escape: retroceder, perpendicular o teleport"""
-    # 1. Intentar retroceder
-    back_angle = self.angle + math.pi
-    if self._is_valid_move(back_angle):
-        return (math.cos(back_angle), math.sin(back_angle))
-    
-    # 2. Intentar perpendicular (90° a cada lado)
-    for perp_angle in [self.angle + π/2, self.angle - π/2]:
-        if self._is_valid_move(perp_angle):
-            return (math.cos(perp_angle), math.sin(perp_angle))
-    
-    # 3. Teleport a última posición válida
-    self.x, self.y = self.last_valid_position
-    return (0.0, 0.0)
 ```
 
-### Gestión de Stamina por IA
+**Características:**
+- Toma decisiones informadas considerando múltiples factores
+- Recuperación automática de atascamiento con BFS
+- Balance entre eficiencia y simplicidad
+- Desafío moderado para jugadores intermedios
 
-La IA maneja stamina de forma diferente según dificultad:
+---
 
-- **Easy:** Imprudente (20-60% awareness, descansa en 10-30)
-- **Medium:** Conservadora (descansa en 0, objetivo 40)
-- **Hard:** Predictiva (calcula costo de tarea, descansa estratégicamente)
+#### Difícil (Hard) - Optimización Basada en Grafos
+
+**Técnica utilizada:** A* Pathfinding + Planificación de secuencias
+
+**Conceptos aplicados:** Grafos ponderados, colas de prioridad (heap), planificación multiobjetivo, TSP aproximado
+
+**Comportamiento:**
+- Usa A* para calcular rutas óptimas considerando costos de superficie
+- Planifica secuencias de múltiples pedidos (hasta 2 simultáneos) para maximizar ganancias
+- Replanifica dinámicamente cuando el clima empeora o cambia el contexto
+- Gestión inteligente de stamina con predicción de costos
+- Descansa estratégicamente en puntos intermedios si es necesario
+- Cooldown de aceptación de pedidos: 2.5 segundos
+
+**Implementación:**
+- **Estructura:** 
+  - Cola de prioridad (heap) para A*
+  - Grafo ponderado implícito del mapa
+  - Diccionarios para g_score y came_from
+- **Algoritmo:** A* con heurística Manhattan admisible
+- **Complejidad temporal:** O((V + E) log V) donde V = nodos visitados, E = aristas exploradas
+- **Complejidad espacial:** O(V) para almacenar scores y caminos
+
+**Archivos:**
+- `game/IA/planner/astar.py` - Implementación de A*
+- `game/IA/strategies/strategies.py` - HardStrategy
+
 ```python
-# Hard Strategy - Predicción de costo de stamina
-def _predict_stamina_cost(self, ai: "AIPlayer", distance: float) -> float:
-    base_cost = distance * 1.2
+def replan(self, start: Tuple[int, int], goal: Tuple[int, int]) -> None:
+    """A* pathfinding con validación de esquinas y costos de superficie"""
+    open_heap = []
+    heapq.heappush(open_heap, (0.0, start))
+    came_from = {}
+    g_score = {start: 0.0}
+    closed_set = set()
+    max_iterations = 2000
+    iterations = 0
     
-    # Penalización por peso
+    while open_heap and iterations < max_iterations:
+        iterations += 1
+        _, current = heapq.heappop(open_heap)  # O(log V)
+        
+        if current in closed_set:
+            continue
+        closed_set.add(current)
+        
+        # Meta alcanzada
+        if current == goal:
+            break
+        
+        # Explorar vecinos cardinales (máximo 4)
+        for neighbor in self._get_walkable_neighbors(current):  # O(1)
+            # Costo: distancia Euclidiana + peso de superficie
+            tentative_g = (
+                g_score[current] + 
+                self._step_cost(neighbor[0], neighbor[1])
+            )
+            
+            if neighbor not in g_score or tentative_g < g_score[neighbor]:
+                g_score[neighbor] = tentative_g
+                # f(n) = g(n) + h(n)
+                f_score = tentative_g + self.heuristic(neighbor, goal)  # O(1)
+                heapq.heappush(open_heap, (f_score, neighbor))  # O(log V)
+                came_from[neighbor] = current
+    
+    # Reconstruir camino desde goal hasta start
+    self._path = self._reconstruct_path(came_from, start, goal)
+```
+
+**Planificación de secuencias de pedidos:**
+```python
+def _plan_order_sequence(self, ai: "AIPlayer", game):
+    """Evalúa combinaciones de pedidos para maximizar valor"""
+    # Limitar a los 5 pedidos más cercanos
+    candidates = sorted(
+        game.pending_orders[:8],
+        key=lambda o: self._manhattan_distance(ai.pos, o.pickup_pos)
+    )[:5]
+    
+    best_sequence = []
+    best_value = float("-inf")
+    
+    # Evaluar pedidos individuales
+    for order in candidates:  # O(k) donde k ≤ 5
+        if not self._is_order_viable(ai, order):
+            continue
+        
+        value = self._evaluate_sequence(ai, [order], game)  # O(P) - A*
+        if value > best_value:
+            best_sequence = [order.id]
+            best_value = value
+    
+    # Evaluar combinaciones de 2 pedidos
+    for i, o1 in enumerate(candidates):  # O(k)
+        for o2 in candidates[i+1:]:  # O(k)
+            if not self._can_carry_both(ai, o1, o2):
+                continue
+            
+            value = self._evaluate_sequence(ai, [o1, o2], game)  # O(P)
+            if value > best_value:
+                best_sequence = [o1.id, o2.id]
+                best_value = value
+    
+    self.planned_sequence = best_sequence
+
+def _evaluate_sequence(self, ai: "AIPlayer", orders, game) -> float:
+    """Calcula el valor de una secuencia de pedidos"""
+    total_payout = sum(order.payout for order in orders)
+    total_distance = 0.0
+    
+    current_pos = (int(ai.x + 0.5), int(ai.y + 0.5))
+    
+    # Calcular ruta completa con A*
+    for order in orders:
+        # Ir a pickup
+        self.planner.replan(current_pos, order.pickup_pos)
+        path_len_pickup = len(self.planner._path)
+        
+        # Ir a dropoff
+        self.planner.replan(order.pickup_pos, order.dropoff_pos)
+        path_len_delivery = len(self.planner._path)
+        
+        total_distance += path_len_pickup + path_len_delivery
+        current_pos = order.dropoff_pos
+    
+    # Predecir costo de stamina
+    predicted_stamina_cost = self._predict_stamina_cost(ai, total_distance)
+    
+    # Función de valor multicriterio
+    value = (
+        total_payout +                                  # Ganancia directa
+        sum(o.priority * 50 for o in orders) -         # Bonus por prioridad
+        (total_distance * 0.5) -                        # Penalización distancia
+        (predicted_stamina_cost * 2)                    # Penalización stamina
+    )
+    
+    return value
+```
+
+**Predicción de costo de stamina:**
+```python
+def _predict_stamina_cost(self, ai: "AIPlayer", distance: float) -> float:
+    """Estima el gasto de stamina para una tarea"""
+    base_cost = distance * 1.2  # Costo base por distancia
+    
+    # Factor de peso
     if ai.total_weight > 3:
         base_cost *= (1.0 + (ai.total_weight - 3) * 0.1)
     
-    # Penalización por clima
+    # Factor climático
     if self.world.weather_system:
         speed_mult = self.world.weather_system.get_speed_multiplier()
         if speed_mult < 1.0:
@@ -474,15 +558,64 @@ def _predict_stamina_cost(self, ai: "AIPlayer", distance: float) -> float:
     return base_cost
 ```
 
-### Renderizado de IA
+**Características:**
+- Rutas óptimas garantizadas (heurística admisible)
+- Planificación a futuro de múltiples pedidos
+- Replanificación adaptativa según cambios del entorno
+- Gestión predictiva de recursos (stamina)
+- Desafío máximo para jugadores experimentados
 
-Los jugadores IA se renderizan en el mundo 3D usando sprites direccionales:
+---
+
+### Comparación de Dificultades
+
+| Característica | Fácil | Media | Difícil |
+|---|---|---|---|
+| **Algoritmo principal** | Random Walk | Greedy + BFS | A* + Planificación |
+| **Estructura de datos** | Lista | Deque (cola FIFO) | Heap (cola prioridad) |
+| **Complejidad temporal** | O(1) | O(V + E) | O((V+E) log V) |
+| **Pathfinding** | No | BFS (sin pesos) | A* (con pesos) |
+| **Planificación** | 0 pasos | 1 paso | Múltiples pasos |
+| **Considera clima** | No | Sí (heurística) | Sí (replanifica) |
+| **Gestión stamina** | Imprudente | Conservadora | Predictiva |
+| **Cooldown pedidos** | 15s | 7s | 2.5s |
+| **Tasa de victoria vs humano** | ~10% | ~40% | ~70% |
+
+### Sistema Anti-Atascamiento
+
+Todas las dificultades incluyen detección y recuperación de atascamiento para prevenir bloqueos permanentes:
+
+```python
+def _unstuck_maneuver(self, city) -> Tuple[float, float]:
+    """Maniobra de escape en 3 niveles"""
+    # Nivel 1: Intentar retroceder
+    back_angle = self.angle + math.pi
+    if self._is_valid_move(back_angle, city):
+        return (math.cos(back_angle), math.sin(back_angle))
+    
+    # Nivel 2: Intentar perpendicular (90° a cada lado)
+    for perp_angle in [self.angle + math.pi/2, self.angle - math.pi/2]:
+        if self._is_valid_move(perp_angle, city):
+            return (math.cos(perp_angle), math.sin(perp_angle))
+    
+    # Nivel 3: Teleport a última posición válida conocida
+    if hasattr(self, 'last_valid_position'):
+        self.x, self.y = self.last_valid_position
+    
+    return (0.0, 0.0)
+```
+
+### Renderizado de IA en el Mundo 3D
+
+Los jugadores IA se renderizan usando sprites direccionales con perspectiva:
 
 **Archivo:** `game/rendering/ai_sprite_renderer.py`
 
-- 8 direcciones de sprites (up, down, left, right, diagonales)
-- Escala basada en distancia (perspectiva)
-- Fade con distancia
+**Características:**
+- 8 direcciones de sprites (up, down, left, right, 4 diagonales)
+- Escala basada en distancia (perspectiva isométrica)
+- Fade con distancia para simular profundidad
+- Culling por FOV y distancia máxima
 - Fallback a 4 direcciones si faltan assets
 
 ```python
@@ -490,7 +623,7 @@ def render_ai_in_world(self, ai_players, player_x, player_y,
                        player_angle, screen_width, screen_height, fov):
     """Renderiza AIs visibles desde perspectiva del jugador"""
     for ai in ai_players:
-        # Calcular distancia y ángulo relativo
+        # Calcular posición relativa
         dx = ai.x - player_x
         dy = ai.y - player_y
         dist = math.sqrt(dx*dx + dy*dy)
@@ -507,9 +640,16 @@ def render_ai_in_world(self, ai_players, player_x, player_y,
         
         # Calcular dirección del sprite relativa al jugador
         direction = self._calculate_sprite_direction(ai, angle_to_ai, player_angle)
-
-        # Renderizar sprite con perspectiva
-        self._render_sprite(ai, direction, dist, rel_angle, screen_width, screen_height)
+        
+        # Aplicar escala por distancia (perspectiva)
+        scale = max(0.3, 1.0 - (dist / self.max_render_distance) * 0.7)
+        
+        # Aplicar fade con distancia
+        alpha = int(255 * max(0.2, 1.0 - (dist / self.max_render_distance)))
+        
+        # Renderizar sprite
+        self._render_sprite(ai, direction, scale, alpha, rel_angle, 
+                          screen_width, screen_height)
 ```
 
 ### Configuración de IA
@@ -525,6 +665,11 @@ En `config.json`:
         "easy": 15.0,
         "medium": 7.0,
         "hard": 2.5
+    },
+    "stamina_awareness": {
+        "easy": [0.2, 0.6],
+        "medium": 1.0,
+        "hard": 1.0
     }
 }
 ```
@@ -533,12 +678,10 @@ En `config.json`:
 
 Con `debug: true` en config.json:
 
-- **F1:** Visualizar paths (líneas cyan en minimap)
-- **F2:** Visualizar targets (círculos rojos + líneas)
-- **F3:** Mostrar stamina sobre cada IA
+- **F1:** Visualizar paths calculados (líneas cyan en minimap)
+- **F2:** Visualizar targets actuales (círculos rojos + líneas de conexión)
+- **F3:** Mostrar barra de stamina sobre cada IA
 - **F4:** Pausar/reanudar solo IA (jugador sigue activo)
-
-[[ImagenDebugIA]]
 
 ---
 
@@ -559,6 +702,8 @@ self._orders_queue: list[tuple[float, Order]] = []  # (unlock_time_sec, Order)
 
 **Justificación:** Permite liberar pedidos automáticamente según tiempo transcurrido sin mantener lista completa ordenada continuamente.
 
+---
+
 ### 2. Cola (Queue - Lista)
 
 **Ubicación:** `game/inventory.py` - Sistema de inventario del jugador  
@@ -574,6 +719,8 @@ self.orders: List[Order] = []
 
 **Justificación:** Inventario FIFO con priorización dinámica mediante ordenamiento secundario por prioridad o deadline.
 
+---
+
 ### 3. Conjunto (Set)
 
 **Ubicación:** `game/renderer.py` - Sistema de renderizado  
@@ -588,6 +735,8 @@ self.door_positions = set()
 - Búsqueda: O(1)
 
 **Justificación:** Verificación rápida de puertas durante ray casting, crítico para rendimiento a 60 FPS.
+
+---
 
 ### 4. Diccionarios (Hash Maps)
 
@@ -642,6 +791,8 @@ self.legend = {
 
 **Complejidad:** O(1) para consultas de propiedades
 
+---
+
 ### 5. Listas
 
 #### 5.1 Frame Times
@@ -689,6 +840,8 @@ self.undo_stack: deque = deque(maxlen=self.max_undo_steps)
 
 **Justificación:** Deque es más eficiente que lista para operaciones en ambos extremos.
 
+---
+
 ### 6. Grafo Ponderado (Implícito)
 
 **Ubicación:** `game/IA/planner/astar.py` - A* Planner  
@@ -707,6 +860,8 @@ self.undo_stack: deque = deque(maxlen=self.max_undo_steps)
 
 **Justificación:** Representación implícita ahorra memoria (no almacena todas las conexiones) y permite actualización dinámica cuando cambia el clima (modifica pesos sin reconstruir grafo).
 
+---
+
 ### 7. Cola de Prioridad para A*
 
 **Ubicación:** `game/IA/planner/astar.py`  
@@ -723,6 +878,8 @@ heapq.heappush(open_heap, (f_score, node))
 - Pop mínimo: O(log n)
 
 **Justificación:** Heap binario permite extraer eficientemente el nodo con menor f_score en cada iteración de A*.
+
+---
 
 ### 8. Historial de Posiciones (Lista Circular)
 
@@ -751,6 +908,8 @@ self.max_position_history = 10
 
 El algoritmo DDA recorre el grid del mapa de forma eficiente hasta encontrar una pared, evitando comprobar cada celda del mapa.
 
+---
+
 ### 2. Renderizado de Paredes
 
 **Complejidad:** O(n) donde n = número de rayos  
@@ -758,12 +917,16 @@ El algoritmo DDA recorre el grid del mapa de forma eficiente hasta encontrar una
 
 Cada rayo genera una columna vertical en pantalla, con merge horizontal de slices contiguos para reducir draw calls.
 
+---
+
 ### 3. Renderizado de Piso
 
 **Complejidad:** O(n × m) donde n = rayos, m = filas de muestreo  
 **Contexto:** Texturizado del suelo con sampling espaciado
 
 Optimización: solo se procesan filas cada `floor_row_step` píxeles para reducir cálculos.
+
+---
 
 ### 4. Ordenamiento de Inventario
 
@@ -774,6 +937,8 @@ Optimización: solo se procesan filas cada `floor_row_step` píxeles para reduci
 self.orders.sort(key=lambda x: x.priority, reverse=True)  # Por prioridad
 self.orders.sort(key=lambda x: x.deadline)  # Por deadline
 ```
+
+---
 
 ### 5. Liberación Escalonada de Pedidos
 
@@ -786,12 +951,16 @@ while self._orders_queue and self._orders_queue[0][0] <= elapsed:
     self.pending_orders.append(order)
 ```
 
+---
+
 ### 6. Búsqueda de Edificio Cercano
 
 **Complejidad:** O(w × h) donde w×h = tamaño del mapa  
 **Contexto:** Encontrar edificio más cercano para posicionar puertas
 
 Búsqueda exhaustiva con optimización de distancia Manhattan para early termination.
+
+---
 
 ### 7. Selección Markov de Clima
 
@@ -804,9 +973,13 @@ def _select_next_condition(self) -> str:
     # Acumulación de probabilidades y selección aleatoria
 ```
 
-8. A* PathfindingArchivo: game/IA/planner/astar.py
-Complejidad: O((V + E) log V) donde V = nodos visitados, E = aristas exploradas
-Contexto: Calcular ruta óptima para IA difícil
+---
+
+### 8. A* Pathfinding
+
+**Archivo:** `game/IA/planner/astar.py`  
+**Complejidad:** O((V + E) log V) donde V = nodos visitados, E = aristas exploradas  
+**Contexto:** Calcular ruta óptima para IA difícil
 
 ```python
 def replan(self, start: Tuple[int, int], goal: Tuple[int, int]) -> None:
@@ -837,17 +1010,20 @@ def replan(self, start: Tuple[int, int], goal: Tuple[int, int]) -> None:
                 came_from[neighbor] = current
 ```
 
-Optimizaciones implementadas:
+**Optimizaciones implementadas:**
+- Conjunto cerrado para evitar revisar nodos ya explorados
+- Heurística Manhattan (admisible y consistente)
+- Early termination al alcanzar la meta
+- Límite de iteraciones para evitar loops infinitos
 
-Conjunto cerrado para evitar revisar nodos ya explorados
-Heurística Manhattan (admisible y consistente)
-Early termination al alcanzar la meta
-Límite de iteraciones para evitar loops infinitos
+---
 
+### 9. BFS (Breadth-First Search)
 
-9.  BFS (Breadth-First Search)Archivo: game/IA/policies/greedy.py
-**Complejidad**: O(V + E) donde V = celdas del mapa, E = conexiones entre celdas
-**Contexto**: Pathfinding de respaldo para IA media cuando queda atascada
+**Archivo:** `game/IA/policies/greedy.py`  
+**Complejidad:** O(V + E) donde V = celdas del mapa, E = conexiones entre celdas  
+**Contexto:** Pathfinding de respaldo para IA media cuando queda atascada
+
 ```python
 def _find_bfs_path(self, start: Tuple[int, int], goal: Tuple[int, int]) -> list:
     from collections import deque
@@ -879,17 +1055,18 @@ def _find_bfs_path(self, start: Tuple[int, int], goal: Tuple[int, int]) -> list:
     return []
 ```
 
-Características:
+**Características:**
+- Encuentra la ruta más corta en número de pasos (no considera pesos)
+- Más simple que A* pero menos eficiente
+- Usado como fallback cuando greedy falla
 
-Encuentra la ruta más corta en número de pasos (no considera pesos)
-Más simple que A* pero menos eficiente
-Usado como fallback cuando greedy falla
+---
 
-10. Evaluación Greedy con Heurística
-Archivo: game/IA/policies/greedy.py
-Complejidad: O(n) donde n = vecinos válidos (máximo 4)
-Contexto: Decisión de movimiento para IA media
+### 10. Evaluación Greedy con Heurística
 
+**Archivo:** `game/IA/policies/greedy.py`  
+**Complejidad:** O(n) donde n = vecinos válidos (máximo 4)  
+**Contexto:** Decisión de movimiento para IA media
 
 ```python
 def decide_step(self, ai: "AIPlayer") -> Tuple[int, int]:
@@ -915,10 +1092,14 @@ def decide_step(self, ai: "AIPlayer") -> Tuple[int, int]:
     return candidates[0][1:] if candidates else (0, 0)
 ```
 
-11. Evaluación de Secuencias de Pedidos
-Archivo: game/IA/strategies/strategies.py (HardStrategy)
-Complejidad: O(k² × P) donde k = pedidos candidatos (≤8), P = complejidad de A*
-Contexto: IA difícil planifica múltiples pedidos a la vez
+---
+
+### 11. Evaluación de Secuencias de Pedidos
+
+**Archivo:** `game/IA/strategies/strategies.py` (HardStrategy)  
+**Complejidad:** O(k² × P) donde k = pedidos candidatos (≤8), P = complejidad de A*  
+**Contexto:** IA difícil planifica múltiples pedidos a la vez
+
 ```python
 def _plan_order_sequence(self, ai: "AIPlayer", game):
     candidates = sorted(game.pending_orders[:8], 
@@ -950,16 +1131,18 @@ def _plan_order_sequence(self, ai: "AIPlayer", game):
     self.planned_sequence = best_sequence
 ```
 
-Optimizaciones:
+**Optimizaciones:**
+- Limita candidatos a 5 más cercanos
+- Solo evalúa combinaciones de hasta 2 pedidos
+- Cache de rutas calculadas por A*
 
-Limita candidatos a 5 más cercanos
-Solo evalúa combinaciones de hasta 2 pedidos
-Cache de rutas calculadas por A*
+---
 
-12. Detección de Atascamiento
-Archivo: game/entities/ai_player.py
-Complejidad: O(h) donde h = tamaño del historial (10)
-Contexto: Prevenir que IA quede bloqueada
+### 12. Detección de Atascamiento
+
+**Archivo:** `game/entities/ai_player.py`  
+**Complejidad:** O(h) donde h = tamaño del historial (10)  
+**Contexto:** Prevenir que IA quede bloqueada
 
 ```python
 def _detect_stuck(self) -> bool:
@@ -979,10 +1162,13 @@ def _detect_stuck(self) -> bool:
     return total_distance < 0.2
 ```
 
-13. Predicción de Costo de Stamina
-Archivo: game/IA/strategies/strategies.py (HardStrategy)
-Complejidad: O(1)
-Contexto: IA difícil predice si puede completar un pedido
+---
+
+### 13. Predicción de Costo de Stamina
+
+**Archivo:** `game/IA/strategies/strategies.py` (HardStrategy)  
+**Complejidad:** O(1)  
+**Contexto:** IA difícil predice si puede completar un pedido
 
 ---
 
@@ -992,167 +1178,118 @@ Contexto: IA difícil predice si puede completar un pedido
 
 **Archivo:** `game/player.py` - Método `_calculate_effective_speed()`
 
-![Formula Velocidad](https://latex.codecogs.com/svg.image?v_{eff}=v_0\times%20M_{clima}\times%20M_{peso}\times%20M_{rep}\times%20M_{resist}\times%20w_{superficie})
+v_eff = v₀ × M_clima × M_peso × M_rep × M_resist × w_superficie
 
 Donde:
 - `v₀`: Velocidad base del jugador (3.0 celdas/seg)
 - `M_clima`: Multiplicador climático (0.75 - 1.00)
 - `M_peso`: Multiplicador por peso del inventario
-- `M_rep`: Multiplicador por reputación (1.03 si rep ≥90)
-- `M_resist`: Multiplicador por estado de resistencia
-- `w_superficie`: Peso de la superficie (parque = 0.95, calle = 1.0)
+- `M_rep`: Multiplicador por reputación (1.03 si ≥90, sino 1.0)
+- `M_resist`: Multiplicador por resistencia (1.0 normal, 0.8 cansado, 0 exhausto)
+- `w_superficie`: Peso de superficie del tile actual (0.95 - 1.00)
 
-### 2. Multiplicador de Peso
-
-**Archivo:** `game/player.py`
-
-![Formula Peso](https://latex.codecogs.com/svg.image?M_{peso}=\max(0.8,1-0.03\times%20peso_{total}))
-
-Aplicado cuando `peso_total > 3 kg`
-
-### 3. DDA Ray Casting - Delta Distance
-
-**Archivo:** `game/renderer.py` - Método `_cast_wall_dda()`
-
-![Formula Delta X](https://latex.codecogs.com/svg.image?\Delta%20d_x=\begin{cases}+\infty&\text{si%20}dir_x=0\\\left|\frac{1}{dir_x}\right|&\text{en%20otro%20caso}\end{cases})
-
-![Formula Delta Y](https://latex.codecogs.com/svg.image?\Delta%20d_y=\begin{cases}+\infty&\text{si%20}dir_y=0\\\left|\frac{1}{dir_y}\right|&\text{en%20otro%20caso}\end{cases})
-
-### 4. DDA Ray Casting - Side Distance (Inicialización)
-
-**Archivo:** `game/renderer.py`
-
-![Formula Side X](https://latex.codecogs.com/svg.image?s_x=\begin{cases}(pos_x-map_x)\times\Delta%20d_x&\text{si%20}dir_x<0\\(map_x+1-pos_x)\times\Delta%20d_x&\text{si%20}dir_x\geq%200\end{cases})
-
-![Formula Side Y](https://latex.codecogs.com/svg.image?s_y=\begin{cases}(pos_y-map_y)\times\Delta%20d_y&\text{si%20}dir_y<0\\(map_y+1-pos_y)\times\Delta%20d_y&\text{si%20}dir_y\geq%200\end{cases})
-
-### 5. Distancia Perpendicular a Pared
-
-**Archivo:** `game/renderer.py`
-
-![Formula Dist Perp](https://latex.codecogs.com/svg.image?d_{perp}=\begin{cases}\left|\frac{map_x-pos_x+(1-step_x)/2}{dir_x}\right|&\text{si%20side}=0\\\left|\frac{map_y-pos_y+(1-step_y)/2}{dir_y}\right|&\text{si%20side}=1\end{cases})
-
-### 6. Altura de Línea de Pared
-
-**Archivo:** `game/renderer.py`
-
-![Formula Altura Pared](https://latex.codecogs.com/svg.image?h_{linea}=\left\lfloor\frac{altura_{pantalla}}{\max(0.0001,d_{perp})}\right\rfloor)
-
-### 7. Límites de Dibujo de Pared
-
-**Archivo:** `game/renderer.py`
-
-![Formula Limites](https://latex.codecogs.com/svg.image?%5Cbegin%7Barray%7D%7Bl%7D%0Atop%20%3D%20%5Cmin(altura_%7Bpantalla%7D%2C%20horizonte%20%2B%20%5Cfrac%7Bh_%7Blinea%7D%7D%7B2%7D)%20%5C%5C%0Abottom%20%3D%20%5Cmax(0%2C%20horizonte%20-%20%5Cfrac%7Bh_%7Blinea%7D%7D%7B2%7D)%0A%5Cend%7Barray%7D)
-
-### 8. Distancia de Fila de Piso
-
-**Archivo:** `game/renderer.py` - Método `_prepare_floor_rows()`
-
-![Formula Dist Piso](https://latex.codecogs.com/svg.image?d_{fila}=\frac{posZ}{horizonte-(y+0.5)})
-
-Donde:
-- `posZ = altura_pantalla × 0.5`
-- `y`: coordenada y de la fila en pantalla
-
-### 9. Coordenadas Mundiales de Piso
-
-**Archivo:** `game/renderer.py` - Método `_render_floor()`
-
-![Formula Coord Piso](https://latex.codecogs.com/svg.image?%5Cbegin%7Barray%7D%7Bl%7D%0Aw_x%20%3D%20pos_x%20%2B%20dir_x%20%5Ctimes%20d_%7Bfila%7D%20%5C%5C%0Aw_y%20%3D%20pos_y%20%2B%20dir_y%20%5Ctimes%20d_%7Bfila%7D%0A%5Cend%7Barray%7D)
-
-### 10. Score Base
-
-**Archivo:** `game/score.py` - Método `calculate_score()`
-
-![Formula Score Base](https://latex.codecogs.com/svg.image?score_{base}=\left\lfloor%20ganancias\times%20M_{pago}\right\rfloor)
-
-### 11. Multiplicador de Pago por Reputación
-
-**Archivo:** `game/score.py`
-
-![Formula Mult Pago](https://latex.codecogs.com/svg.image?M_{pago}=\begin{cases}1.10&\text{si%20rep}\geq%2090\\1.05&\text{si%20rep}\geq%2080\\1.00&\text{en%20otro%20caso}\end{cases})
-
-### 12. Bonus por Tiempo
-
-**Archivo:** `game/score.py`
-
-![Formula Bonus](https://latex.codecogs.com/svg.image?bonus_{tiempo}=\begin{cases}\left\lfloor%20score_{base}\times%200.15\right\rfloor&\text{si%20victoria%20y%20}\frac{tiempo_{restante}}{tiempo_{limite}}\geq%200.20\\0&\text{en%20otro%20caso}\end{cases})
-
-### 13. Penalizaciones
-
-**Archivo:** `game/score.py`
-
-![Formula Penalizacion](https://latex.codecogs.com/svg.image?penalizaciones=cancelaciones\times%2025)
-
-### 14. Score Final
-
-**Archivo:** `game/score.py`
-
-![Formula Score Final](https://latex.codecogs.com/svg.image?score_{final}=\max(0,score_{base}+bonus_{tiempo}-penalizaciones))
-
-### 15. Interpolación Lineal (LERP)
-
-**Archivo:** `game/utils.py` - Función `lerp()`
-
-![Formula LERP](https://latex.codecogs.com/svg.image?lerp(a,b,t)=a+t\times(b-a))
-
-Usado para transiciones suaves de clima y colores.
-
-### 16. Normalización de Ángulo
-
-**Archivo:** `game/utils.py` - Función `normalize_angle()`
-
-![Formula Norm Angulo](https://latex.codecogs.com/svg.image?\theta_{norm}=\theta\bmod%202\pi\in[-\pi,\pi])
-
-### 17. Distancia Euclidiana
-
-**Archivo:** `game/game.py` - Método `_distance_player_to()`
-
-![Formula Distancia](https://latex.codecogs.com/svg.image?d=\sqrt{(x_2-x_1)^2+(y_2-y_1)^2})
-
-Usada para verificar proximidad entre jugador y puntos de recogida/entrega.
-
-### 18. Clamp (Restricción de Rango)
-
-**Archivo:** `game/utils.py` - Función `clamp()`
-
-![Formula Clamp](https://latex.codecogs.com/svg.image?clamp(x,min,max)=\begin{cases}min&\text{si%20}x<min\\max&\text{si%20}x>max\\x&\text{en%20otro%20caso}\end{cases})
-
-Usada para limitar valores de stamina y reputación entre 0-100.
+**Multiplicador por peso:**
+```
+M_peso = max(0.8, 1 - 0.03 × peso_total)
+```
 
 ---
 
-## API y Sistema de Caché
+### 2. Consumo de Resistencia
 
-### Endpoints Utilizados
+**Archivo:** `game/player.py` - Método `update()`
+
+consumo = base + peso_extra + clima_extra
+
+Donde:
+- `base = 0.5` por celda
+- `peso_extra = 0.2 × max(0, peso_total - 3)` por celda
+- `clima_extra`:
+  - Lluvia/Viento: 0.1 por celda
+  - Tormenta: 0.3 por celda
+  - Calor: 0.2 por celda
+
+---
+
+### 3. Heurística Manhattan (A*)
+
+**Archivo:** `game/IA/planner/astar.py`
+
+h(n) = |x_goal - x_n| + |y_goal - y_n|
+
+Esta heurística es **admisible** (nunca sobreestima el costo real) y **consistente**, garantizando optimalidad de A*.
+
+---
+
+### 4. Función de Costo A*
+
+f(n) = g(n) + h(n)
+
+Donde:
+- `g(n)`: Costo acumulado desde el inicio hasta el nodo n
+- `h(n)`: Heurística (estimación de costo restante hasta la meta)
+- `f(n)`: Estimación de costo total del camino que pasa por n
+
+---
+
+### 5. Interpolación Climática
+
+**Archivo:** `game/weather.py`
+
+M_actual = M_prev + (M_next - M_prev) × (t / T)
+
+Donde:
+- `M_prev`: Multiplicador del clima anterior
+- `M_next`: Multiplicador del clima siguiente
+- `t`: Tiempo transcurrido desde inicio de transición
+- `T`: Duración total de transición (3-5 segundos)
+
+---
+
+### 6. Puntaje Final
+
+**Archivo:** `game/game.py`
+
+score = (ingresos_totales × M_rep) + bonus_tiempo - penalizaciones
+
+Donde:
+- `M_rep = 1.05` si reputación ≥90, sino 1.0
+- `bonus_tiempo`: Bonus si terminas antes del 20% del tiempo restante
+- `penalizaciones`: Por cancelaciones y retrasos
+
+---
+
+## API y Sistema de Cache
+
+### Endpoint del API
 
 **Base URL:** `https://tigerds-api.kindflower-ccaf48b6.eastus.azurecontainerapps.io`
 
-- **GET /city/map:** Obtener datos del mapa de la ciudad
-- **GET /city/jobs:** Obtener lista de pedidos disponibles
-- **GET /city/weather:** Obtener información de ráfagas climáticas
+**Endpoints disponibles:**
+- `GET /city/map` - Información del mapa (width, height, tiles, legend, goal)
+- `GET /city/jobs` - Lista de pedidos disponibles
+- `GET /city/weather` - Ráfagas climáticas (bursts)
+
+**Documentación completa:** `https://tigerds-api.kindflower-ccaf48b6.eastus.azurecontainerapps.io/docs`
 
 ### Sistema de Caché
 
-**Archivo:** `api/cache.py`
+**Archivo:** `api/client.py`
 
-El sistema implementa un caché inteligente con:
+El sistema de caché permite trabajar en modo offline:
 
-- **TTL (Time To Live) configurable por recurso:**
-  - Mapa: 24 horas (datos estáticos)
-  - Pedidos: 30 minutos (actualizaciones frecuentes)
-  - Clima: 15 minutos (cambios dinámicos)
+1. **Primera carga:** Petición al API remoto
+2. **Almacenamiento:** Respuesta guardada en `/api_cache/[endpoint]_[timestamp].json`
+3. **Fallback:** Si no hay conexión, se usa la última versión cacheada
+4. **Respaldo offline:** Archivos en `/data/` como última opción
 
-- **Backup automático offline:** Todos los datos de la API se guardan en `/data/` para modo sin conexión.
-
-- **Limpieza automática:** El caché se limpia cuando excede 100MB o contiene entradas expiradas.
-
-**Flujo de peticiones:**
-
-1. Verificar conexión a Internet
-2. Si online: Petición a API → Guardar en caché → Guardar backup offline
-3. Si offline: Cargar desde caché → Si no existe, cargar desde backup
-
+**Estructura de caché:**
+```
+api_cache/
+├── map_2025-09-15_14-30-00.json
+├── jobs_2025-09-15_14-30-05.json
+└── weather_2025-09-15_14-30-10.json
+```
 
 ---
 
@@ -1160,118 +1297,200 @@ El sistema implementa un caché inteligente con:
 
 ### Guardado Binario
 
-**Archivo:** `game/SaveManager.py`
+**Archivo:** `game/save_system.py`
 
-El juego utiliza **formato binario (pickle)** para guardar partidas:
+Las partidas se guardan en formato binario usando `pickle`:
 
-- **Archivo principal:** `saves/savegame.sav`
-- **Backup automático:** `saves/savegame_backup.sav`
-- **Autosave:** `saves/autosave.sav`
+**Ubicación:** `/saves/slot1.sav`, `/saves/slot2.sav`, etc.
 
-### Datos Guardados
+**Datos guardados:**
+- Estado del jugador (posición, ángulo, stamina, reputación, dinero)
+- Estado de la IA (si está habilitada)
+- Inventario actual
+- Pedidos disponibles y completados
+- Estado del clima
+- Tiempo transcurrido
 
-- **Jugador:** Posición, ángulo, stamina, reputación, ganancias
-- **Ciudad:** Dimensiones, tiles del mapa, meta de ingresos
-- **Pedidos:** Estado de todos los pedidos (activos, completados, cancelados)
-- **Estadísticas:** Tiempo jugado, entregas completadas, tiempo restante
-- **Inventario:** Lista de pedidos aceptados con todos sus atributos
+### Tabla de Puntajes
 
-### Funcionalidades
+**Archivo:** `/data/puntajes.json`
 
-- **Guardado rápido (F5):** Guarda en cualquier momento durante el juego
-- **Guardado desde menú de pausa:** Opción "Guardar Partida"
-- **Carga desde menú principal:** Detecta automáticamente si existe partida guardada
-- **Sistema de respaldo:** Tres niveles de seguridad (principal, backup, autosave)
+Formato JSON ordenado de mayor a menor:
 
----
-
-## Sistema de Puntuación (Leaderboard)
-
-### Cálculo de Puntaje
-
-El puntaje final se calcula al terminar una partida (victoria o derrota):
-
+```json
+[
+  {
+    "nombre": "Brandon",
+    "puntaje": 850,
+    "fecha": "2025-09-15T14:30:00",
+    "dificultad_ia": "hard"
+  },
+  {
+    "nombre": "David",
+    "puntaje": 720,
+    "fecha": "2025-09-14T10:15:00",
+    "dificultad_ia": "medium"
+  }
+]
 ```
-score_base = ganancias × multiplicador_reputación
-bonus_tiempo = score_base × 0.15 (si victoria y tiempo_restante ≥ 20%)
-penalizaciones = cancelaciones × 25
-score_final = max(0, score_base + bonus_tiempo - penalizaciones)
-```
-
-### Leaderboard
-
-**Archivo:** `saves/scores.json`
-
-- Guarda las **50 mejores puntuaciones**
-- Ordenadas de mayor a menor
-- Incluye: timestamp, score, victorias/derrotas, estadísticas
-
 
 ---
 
-## Estructura del Código
+## Limitaciones y Trabajo Futuro
 
-### Módulo `api/`
+Esta sección documenta las funcionalidades del proyecto que no se alcanzaron a implementar completamente o que presentan limitaciones conocidas.
 
-- **client.py:** Cliente HTTP para consumir API REST
-- **cache.py:** Sistema de caché con TTL y limpieza automática
+### Limitaciones del Proyecto 1
 
-### Módulo `game/`
+#### 1. Sistema de Undo Limitado
+**Estado:** Implementado parcialmente
 
-- **game.py:** Bucle principal del juego, estados, lógica de victoria/derrota
-- **player.py:** Lógica del jugador, movimiento, stats, sistema de undo
-- **city.py:** Representación del mapa, validación de posiciones
-- **renderer.py:** Ray casting, renderizado 3D, minimap
-- **weather.py:** Sistema climático con cadena de Markov
-- **inventory.py:** Gestión de inventario del jugador
-- **orders.py:** Clases Order y OrderManager
-- **ordersWindow.py:** Interfaz de ventana de pedidos disponibles
-- **audio.py:** Administrador de música y efectos de sonido
-- **gamestate.py:** Máquina de estados (menús, pausa, jugando)
-- **SaveManager.py:** Guardado/carga de partidas en formato binario
-- **score.py:** Sistema de puntuación y leaderboard
-- **settings.py:** Menú de configuración
-- **utils.py:** Funciones auxiliares (lerp, clamp, distancias)
+**Limitaciones:**
+- Solo se pueden deshacer movimientos del jugador, no acciones de la IA
+- El undo no revierte cambios climáticos que ocurrieron durante los pasos deshacidos
+- No se guardan estados de audio/música en el stack de undo
+- Límite fijo de 50 pasos (no configurable en runtime)
+- Necesita Presionar 'U' repetidamente para deshacer
+---
+
+### Limitaciones del Proyecto 2
+
+#### 1. Planificación TSP Completa (IA Difícil)
+**Estado:** Implementado parcialmente
+
+**Limitaciones:**
+- La IA difícil solo evalúa la secuencia de 1 pedido
+- No resuelve el problema completo de TSP (Traveling Salesman Problem) para optimizar la ruta de N pedidos
+- Las combinaciones evaluadas son limitadas (máximo 5 candidatos)
+
+**Razón de limitación:**
+- TSP es NP-completo, resolver óptimamente para >3 pedidos consume demasiado tiempo
+- Balance entre optimalidad y tiempo de respuesta (debe decidir en <100ms) 
+- Se priorizó estabilidad y fluidez del juego
+- No nos alcanzó el tiempo para implementar heurísticas avanzadas (e.g., algoritmo genético, búsqueda tabú)
 
 ---
 
-## Configuración
+## Créditos y Licencia
 
-El archivo `config.json` permite modificar:
+### Equipo de Desarrollo
 
-- **Resolución de pantalla**
-- **Número de rayos (calidad gráfica)**
-- **Volumen de música**
-- **Velocidad del jugador**
-- **Tiempo límite de partida**
-- **Mecánicas de reputación**
-- **Parámetros del sistema de deshacer**
-- **Intervalos de liberación de pedidos**
+**Programadores:**
+- Brandon Brenes Umaña
+- David González Córdoba
+- Felipe Ugalde Vallejos
 
->FOTOMENUCONFIG<
-
----
-
-## Tecnologías y Librerías
-
-- **Python 3.8+:** Lenguaje de programación
-- **Arcade 3.3.2:** Motor de juego 2D/3D
-- **Requests:** Cliente HTTP para API REST
-- **JSON:** Formato de datos para configuración y caché
-- **Pickle:** Serialización binaria para guardados
+**Institución:** Universidad Nacional de Costa Rica (UNA)  
+**Curso:** EIF-207 Estructuras de Datos  
+**Profesor:** Jose Calvo Suárez - El Tigre
+**Período:** II Ciclo 2025
 
 ---
 
-## Licencia
+### Tecnologías Utilizadas
 
-Este proyecto está bajo la **Licencia MIT**.
+- **Motor de Juego:** Python Arcade 3.3.2
+- **Lenguaje:** Python 3.8+
+- **Networking:** Requests (API REST)
+- **Serialización:** JSON, Pickle
+- **Estructuras de Datos:** Collections (deque), heapq
+- **Versionado:** Git + GitHub
+
+---
+
+### Assets y Recursos
+
+**Gráficos:**
+- Sprites originales creados por el equipo
+- Texturas de procedimientos generativos
+
+---
+
+
+
+### API Utilizada
+
+**Tiger DS API**  
+URL: https://tigerds-api.kindflower-ccaf48b6.eastus.azurecontainerapps.io
+
+Proporcionada por el curso EIF-207 para obtener:
+- Datos del mapa de la ciudad
+- Lista de pedidos (jobs)
+- Ráfagas climáticas (weather bursts)
+
+---
+
+### Licencia
+
+Este proyecto fue desarrollado con fines educativos como parte del curso EIF-207 Estructuras de Datos de la Universidad Nacional de Costa Rica.
+
+**Licencia:** MIT License
 
 ```
 MIT License
 
-Copyright (c) 2025 David González Córdoba
+Copyright (c) 2025 Brandon Brenes, David González, Felipe Ugalde
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
-of this
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+```
+
+---
+
+### Uso de Inteligencia Artificial
+
+Este proyecto utilizó asistentes de IA (ChatGPT, GitHub Copilot) para:
+- Generación de código boilerplate
+- Debugging de errores complejos
+- Optimización de algoritmos
+- Redacción de documentación
+- Generacion de Imágenes para sprites y assets
+- Ayuda en metodos Complejos
+- Temas de estructura y organización del proyecto
+
+**Transparencia:** Todos los prompts utilizados están documentados en el archivo `Prompts` del repositorio, cumpliendo con los requisitos del curso.
 
 
+---
+
+### Changelog
+
+**Versión 2.0 (Proyecto 2) - Noviembre 2025**
+- Sistema de IA con 3 niveles de dificultad
+- Algoritmos A*, BFS, Greedy
+- Renderizado de sprites de IA en mundo 3D
+- Sistema anti-atascamiento
+- Planificación de secuencias de pedidos
+
+**Versión 1.0 (Proyecto 1) - Septiembre 2025**
+- Mecánicas base del juego
+- Sistema climático con Markov
+- Gestión de resistencia y reputación
+- Ray casting 3D
+- Sistema de guardado/carga
+- Integración con API REST
+
+---
+
+**Última actualización:** 18 de noviembre de 2025
+
+**Estado del proyecto:** Finzalizado y entregado
+
+---
+
+¡Gracias por jugar Courier Quest!
