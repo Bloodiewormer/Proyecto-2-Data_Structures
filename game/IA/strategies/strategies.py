@@ -1,11 +1,11 @@
 from __future__ import annotations
 from typing import Optional, Tuple, List, Dict, Any
+import random
 
 from game.IA.interfaces import StepPolicy, PathPlanner
 from game.IA.policies.random_choice import RandomChoicePolicy
 from game.IA.policies.greedy import GreedyPolicy
 from game.IA.planner.astar import AStarPlanner
-
 
 
 def _manhattan(a: Tuple[int,int], b: Tuple[int,int]) -> int:
@@ -16,16 +16,13 @@ def _neighbors4(x: int, y: int) -> List[Tuple[int,int]]:
 
 def _is_walkable(city, x: int, y: int) -> bool:
     try:
-        # city.is_wall(x,y) existe en el repo
         return not city.is_wall(x, y)
     except Exception:
-        # Fallback leyendo tiles si hiciera falta
         if x < 0 or y < 0 or x >= city.width or y >= city.height:
             return False
         return getattr(city, "tiles", [[]])[y][x] != "B"
 
 def _nearest_door(city, gx: int, gy: int, max_expansion: int = 32) -> Optional[Tuple[int,int]]:
-    """Puerta = celda caminable más cercana al target (gx,gy)."""
     if _is_walkable(city, gx, gy):
         return (gx, gy)
     from collections import deque
@@ -48,7 +45,6 @@ def _nearest_door(city, gx: int, gy: int, max_expansion: int = 32) -> Optional[T
     return None
 
 def _best_step_towards(city, cx: int, cy: int, tx: int, ty: int, last_step: Tuple[int,int]) -> Tuple[int,int]:
-    """Paso cardinal que minimiza Manhattan hacia (tx,ty), evitando paredes."""
     cand = []
     for dx, dy in [(1,0),(-1,0),(0,1),(0,-1)]:
         nx, ny = cx + dx, cy + dy
@@ -56,7 +52,6 @@ def _best_step_towards(city, cx: int, cy: int, tx: int, ty: int, last_step: Tupl
             cand.append((dx, dy, _manhattan((nx, ny), (tx, ty))))
     if not cand:
         return (0, 0)
-    # Preferir el que más reduce distancia; pequeño bonus a mantener dirección
     best = None
     best_score = 10**9
     for dx, dy, dist in cand:
@@ -69,7 +64,6 @@ def _best_step_towards(city, cx: int, cy: int, tx: int, ty: int, last_step: Tupl
     return best or (0, 0)
 
 def _best_step_away(city, cx: int, cy: int, fromx: int, fromy: int) -> Tuple[int,int]:
-    """Paso cardinal que aumenta Manhattan respecto a (fromx,fromy), evitando paredes."""
     cand = []
     for dx, dy in [(1,0),(-1,0),(0,1),(0,-1)]:
         nx, ny = cx + dx, cy + dy
@@ -77,38 +71,26 @@ def _best_step_away(city, cx: int, cy: int, fromx: int, fromy: int) -> Tuple[int
             cand.append((dx, dy, _manhattan((nx, ny), (fromx, fromy))))
     if not cand:
         return (0, 0)
-    # Maximiza la distancia
     cand.sort(key=lambda t: -t[2])
     return (cand[0][0], cand[0][1])
 
 
 class BaseStrategy:
-    """
-    Contrato: decide(ai, game) puede:
-    - retornar (dx,dy) para un paso directo
-    - y/o actualizar ai.current_target / ai.current_path
-    """
     def decide(self, ai: "AIPlayer", game) -> Optional[Tuple[int, int]]:
         raise NotImplementedError
 
 
 class EasyStrategy(BaseStrategy):
-    """
-    Estrategia fácil: Acepta el primer pedido disponible y se mueve aleatoriamente
-    con sesgo hacia el objetivo.
-    """
-
     def __init__(self, world):
         self.world = world
         self.policy = RandomChoicePolicy(world, bias=0.35)
         self.current_order_id = None
         self.debug = getattr(world, 'debug', False)
 
-        # NUEVO: Sistema de descanso variable
         import random
         self.stamina_awareness = random.uniform(0.2, 0.6)
-        self.rest_start_threshold = random.randint(10, 30)  # Cuándo empieza a descansar
-        self.rest_target = random.randint(50, 80)  # Cuánta stamina recuperar
+        self.rest_start_threshold = random.randint(10, 30)
+        self.rest_target = random.randint(50, 80)
         self.is_resting = False
 
         if self.debug:
@@ -118,7 +100,6 @@ class EasyStrategy(BaseStrategy):
     def decide(self, ai: "AIPlayer", game) -> Optional[Tuple[int, int]]:
         now = game.total_play_time
 
-        # Debug periódico
         if self.debug and int(now) % 3 == 0 and int(now) != getattr(self, '_last_debug_time', -1):
             self._last_debug_time = int(now)
             order_str = ai.inventory.orders[0].id[:8] if ai.inventory.orders else "Sin pedido"
@@ -128,23 +109,18 @@ class EasyStrategy(BaseStrategy):
 
         import random
 
-        # NUEVO: Sistema de descanso completo
         if self.is_resting:
-            # Está descansando, verificar si ya recuperó suficiente
             if ai.stamina >= self.rest_target:
                 self.is_resting = False
                 if self.debug:
                     print(f"[EASY] ✅ Descanso completo! {ai.stamina:.1f}/{self.rest_target}")
             else:
-                # Seguir descansando
-                if self.debug and int(now * 2) % 5 == 0:  # Debug cada 2.5s
+                if self.debug and int(now * 2) % 5 == 0:
                     print(f"[EASY] 💤 Descansando... {ai.stamina:.1f}/{self.rest_target}")
                 ai.current_target = None
                 return (0, 0)
         else:
-            # No está descansando, verificar si debe empezar
             if ai.stamina < self.rest_start_threshold:
-                # A veces ignora la stamina baja (torpe)
                 if random.random() < self.stamina_awareness:
                     self.is_resting = True
                     if self.debug:
@@ -153,7 +129,6 @@ class EasyStrategy(BaseStrategy):
                     ai.current_target = None
                     return (0, 0)
                 else:
-                    # Imprudente: sigue moviéndose con stamina baja
                     if self.debug and not hasattr(self, '_imprudent_logged'):
                         print(f"[EASY] 🤪 Ignorando stamina baja ({ai.stamina:.1f}) - imprudente")
                         self._imprudent_logged = True
@@ -161,11 +136,9 @@ class EasyStrategy(BaseStrategy):
                 if hasattr(self, '_imprudent_logged'):
                     delattr(self, '_imprudent_logged')
 
-        # 1. Si no tiene pedido, tomar el primero disponible
         if not ai.inventory.orders and game.pending_orders:
             order = game.pending_orders[0]
 
-            # Verificar capacidad
             new_weight = ai.inventory.current_weight + float(getattr(order, 'weight', 0.0))
             if new_weight > ai.inventory.max_weight:
                 if self.debug:
@@ -173,7 +146,6 @@ class EasyStrategy(BaseStrategy):
                 ai.current_target = None
                 return (0, 0)
 
-            # A veces acepta pedidos con stamina baja (torpe)
             stamina_ok = ai.stamina > 40 or random.random() > 0.5
 
             if stamina_ok:
@@ -196,7 +168,6 @@ class EasyStrategy(BaseStrategy):
                 ai.current_target = None
                 return (0, 0)
 
-        # 2. Actualizar target según estado del pedido
         if ai.inventory.orders:
             order = ai.inventory.orders[0]
             if order.status == "picked_up":
@@ -206,7 +177,6 @@ class EasyStrategy(BaseStrategy):
         else:
             ai.current_target = None
 
-        # 3. Movimiento aleatorio SOLO si hay target Y no está descansando
         if ai.current_target and not self.is_resting:
             return self.policy.decide_step(ai)
 
@@ -214,11 +184,6 @@ class EasyStrategy(BaseStrategy):
 
 
 class MediumStrategy(BaseStrategy):
-    """
-    Estrategia intermedia: Evalúa pedidos con heurística considerando
-    distancia, payout, clima y estado del jugador.
-    """
-
     def __init__(self, world, lookahead_depth: int = 2, climate_weight: float = 0.5):
         self.world = world
         self.policy = GreedyPolicy(world, climate_weight=climate_weight, lookahead_depth=lookahead_depth)
@@ -226,158 +191,63 @@ class MediumStrategy(BaseStrategy):
         self.evaluation_interval = 5.0
         self.debug = getattr(world, 'debug', False)
 
-        # NUEVO: Sistema adaptativo de descanso
-        self.stamina_strategy = "balanced"
         self.is_resting = False
-        self.rest_start_threshold = 20  # Cuándo empieza a descansar
-        self.rest_target = 60  # Cuánta stamina recuperar
-        self.last_stamina_decision = 0.0
-
-    def _update_stamina_strategy(self, ai: "AIPlayer"):
-        """Adapta umbrales de descanso según desempeño"""
-        if ai.reputation > 80 and ai.earnings > 300:
-            # Alto desempeño: descansa menos, más agresivo
-            self.stamina_strategy = "aggressive"
-            self.rest_start_threshold = 12
-            self.rest_target = 45
-        elif ai.reputation < 50:
-            # Bajo desempeño: descansa más, conservador
-            self.stamina_strategy = "conservative"
-            self.rest_start_threshold = 35
-            self.rest_target = 70
-        else:
-            # Balanceado
-            self.stamina_strategy = "balanced"
-            self.rest_start_threshold = 20
-            self.rest_target = 60
+        self.rest_start_threshold = 0
+        self.rest_target = 40
 
     def decide(self, ai: "AIPlayer", game) -> Optional[Tuple[int, int]]:
         now = game.total_play_time
 
-        # Actualizar estrategia cada 10 segundos
-        if now - self.last_stamina_decision > 10.0:
-            self._update_stamina_strategy(ai)
-            self.last_stamina_decision = now
+        prev_resting = getattr(self, "_prev_resting", False)
+        if not self.is_resting:
+            if ai.stamina <= 0 or not ai.can_move():
+                self.is_resting = True
+                if hasattr(ai, "enter_rest"):
+                    ai.enter_rest(reset_timer=True)
+                self._prev_resting = True
 
-            if self.debug:
-                print(f"[MEDIUM] Estrategia: {self.stamina_strategy} "
-                      f"(rest_at={self.rest_start_threshold}, target={self.rest_target})")
-
-        if self.debug and int(now) % 5 == 0 and int(now) != getattr(self, '_last_debug_second', -1):
-            self._last_debug_second = int(now)
-            order_str = ai.inventory.orders[0].id[:8] if ai.inventory.orders else "Sin pedido"
-            rest_status = "💤" if self.is_resting else ""
-            print(f"[MEDIUM] {rest_status} Pos=({ai.x:.1f},{ai.y:.1f}), Stamina={ai.stamina:.1f}, "
-                  f"Strategy={self.stamina_strategy}, Pedido={order_str}")
-
-        import random
-
-        # NUEVO: Sistema de descanso inteligente
         if self.is_resting:
-            # Descansando, verificar si ya recuperó suficiente
-            if ai.stamina >= self.rest_target:
-                self.is_resting = False
-                if self.debug:
-                    print(f"[MEDIUM] ✅ Descanso completo! {ai.stamina:.1f}/{self.rest_target}")
-            else:
-                # Seguir descansando
-                if self.debug and int(now * 2) % 5 == 0:
-                    remaining = self.rest_target - ai.stamina
-                    print(f"[MEDIUM] 💤 Descansando... {ai.stamina:.1f}/{self.rest_target} "
-                          f"(faltan {remaining:.1f})")
-                ai.current_target = None
-                return (0, 0)
-        else:
-            # No está descansando, verificar si debe empezar
-            if ai.stamina < self.rest_start_threshold:
-                # Modo agresivo: a veces arriesga un poco más
-                if self.stamina_strategy == "aggressive" and ai.inventory.orders:
-                    if random.random() < 0.25:  # 25% de probabilidad de arriesgar
-                        if self.debug:
-                            print(f"[MEDIUM] ⚠️  Arriesgando con stamina baja ({ai.stamina:.1f})")
-                    else:
-                        self.is_resting = True
-                        if self.debug:
-                            print(f"[MEDIUM] 💤 Empezando descanso ({self.stamina_strategy})")
-                        ai.current_target = None
-                        return (0, 0)
-                else:
-                    # Otros modos: descansa siempre
-                    self.is_resting = True
-                    if self.debug:
-                        print(f"[MEDIUM] 💤 Empezando descanso (stamina={ai.stamina:.1f}, "
-                              f"objetivo={self.rest_target})")
-                    ai.current_target = None
-                    return (0, 0)
-
-        # 1. Si tiene pedido activo
-        if ai.inventory.orders:
-            order = ai.inventory.orders[0]
-
-            # Evaluar cambio de pedido (NO cancelar por stamina)
-            if (now - self.last_evaluation > self.evaluation_interval and
-                    order.priority == 0 and
-                    game.pending_orders):
-
-                best_alt = self._find_best_order(ai, game.pending_orders, game)
-
-                if best_alt:
-                    current_score = self._score_order(ai, order, game)
-                    alt_score = self._score_order(ai, best_alt, game)
-
-                    threshold = 1.5 if self.stamina_strategy == "conservative" else 1.3
-
-                    if alt_score > current_score * threshold:
-                        if self.debug:
-                            print(f"[MEDIUM] Cambiando {order.id[:8]} por {best_alt.id[:8]}")
-
-                        ai.cancel_order()
-                        ai.inventory.remove_order(order.id)
-                        game.orders_manager.mark_canceled(order.id)
-
-                        if ai.try_accept_order_with_delay(best_alt, now):
-                            best_alt.start_timer(now)
-                            best_alt.status = "in_progress"
-                            game.pending_orders.remove(best_alt)
-                            if hasattr(game.orders_manager, 'pending_orders'):
-                                game.orders_manager.pending_orders = game.pending_orders
-                            order = best_alt
-
-                self.last_evaluation = now
-
-            # Actualizar target
-            ai.current_target = order.dropoff_pos if order.status == "picked_up" else order.pickup_pos
-
-            if ai.current_target and not self.is_resting:
-                return self.policy.decide_step(ai)
-            return (0, 0)
-
-        # 2. Si no tiene pedido
-        else:
-            best = self._find_best_order(ai, game.pending_orders, game)
-
-            if best:
-                if ai.try_accept_order_with_delay(best, now):
+            if not ai.inventory.orders and game.pending_orders:
+                best = self._find_best_order(ai, game.pending_orders, game)
+                if best and ai.try_accept_order_with_delay(best, now):
                     best.start_timer(now)
                     best.status = "in_progress"
                     game.pending_orders.remove(best)
-
                     if hasattr(game.orders_manager, 'pending_orders'):
                         game.orders_manager.pending_orders = game.pending_orders
-
                     ai.current_target = best.pickup_pos
-
                     if self.debug:
-                        print(f"[MEDIUM] Aceptó {best.id[:8]} (score={self._score_order(ai, best, game):.1f})")
+                        print(f"[MEDIUM] Aceptó {best.id[:8]} (mientras descansa)")
 
-                    if not self.is_resting:
-                        return self.policy.decide_step(ai)
+            if ai.stamina >= self.rest_target:
+                self.is_resting = False
+            else:
+                ai.current_target = ai.current_target
+                self._prev_resting = True
+                return (0, 0)
 
-            ai.current_target = None
-            return (0, 0)
+        if prev_resting and not self.is_resting:
+            pass
+
+        if ai.inventory.orders:
+            order = ai.inventory.orders[0]
+            ai.current_target = order.dropoff_pos if order.status == "picked_up" else order.pickup_pos
+            return self.policy.decide_step(ai)
+
+        best = self._find_best_order(ai, game.pending_orders, game)
+        if best and ai.try_accept_order_with_delay(best, now):
+            best.start_timer(now)
+            best.status = "in_progress"
+            game.pending_orders.remove(best)
+            if hasattr(game.orders_manager, 'pending_orders'):
+                game.orders_manager.pending_orders = game.pending_orders
+            ai.current_target = best.pickup_pos
+            return self.policy.decide_step(ai)
+
+        ai.current_target = None
+        return (0, 0)
 
     def _score_order(self, ai: "AIPlayer", order, game) -> float:
-        """Score con penalización dinámica de stamina"""
         dist_to_pickup = abs(ai.x - order.pickup_pos[0]) + abs(ai.y - order.pickup_pos[1])
 
         weather_penalty = 0.0
@@ -388,51 +258,23 @@ class MediumStrategy(BaseStrategy):
             except Exception:
                 pass
 
-        # Penalización de stamina según estrategia
         stamina_penalty = 0.0
-        if self.stamina_strategy == "aggressive":
-            # Agresivo: poca penalización
-            if ai.stamina < 30:
-                stamina_penalty = (30 - ai.stamina) * 0.8
-        elif self.stamina_strategy == "conservative":
-            # Conservador: alta penalización
-            if ai.stamina < 60:
-                stamina_penalty = (60 - ai.stamina) * 2.5
-        else:  # balanced
-            if ai.stamina < 50:
-                stamina_penalty = (50 - ai.stamina) * 1.5
+        if ai.stamina < 20:
+            stamina_penalty = (20 - ai.stamina) * 0.8
 
         priority_bonus = order.priority * 50
 
         score = (
-                float(getattr(order, 'payout', getattr(order, 'payment', 0.0)))
-                + priority_bonus
-                - (dist_to_pickup * 0.5)
-                - (weather_penalty * 0.3)
-                - (stamina_penalty * 0.4)
+            float(getattr(order, 'payout', getattr(order, 'payment', 0.0)))
+            + priority_bonus
+            - (dist_to_pickup * 0.5)
+            - (weather_penalty * 0.3)
+            - (stamina_penalty * 0.2)
         )
-
         return score
 
     def _find_best_order(self, ai: "AIPlayer", orders, game) -> Optional[Any]:
-        """Filtros dinámicos - NO bloquear por stamina baja si está descansando"""
         if not orders:
-            return None
-
-        # Si está descansando, no aceptar nuevos pedidos
-        if self.is_resting:
-            return None
-
-        # Umbral mínimo según estrategia
-        min_stamina = {
-            "aggressive": 15,
-            "balanced": 30,
-            "conservative": 45
-        }.get(self.stamina_strategy, 30)
-
-        if ai.stamina < min_stamina:
-            if self.debug:
-                print(f"[MEDIUM] Stamina {ai.stamina:.1f} < {min_stamina}, no acepta pedidos")
             return None
 
         best_order = None
@@ -444,7 +286,6 @@ class MediumStrategy(BaseStrategy):
                 continue
 
             score = self._score_order(ai, order, game)
-
             if score > best_score:
                 best_score = score
                 best_order = order
@@ -456,6 +297,9 @@ class HardStrategy(BaseStrategy):
     """
     Estrategia avanzada: Usa A* para calcular rutas exactas y
     planifica secuencias de múltiples pedidos.
+
+    Ajuste: fuerza descanso en el mismo ciclo en que se rechaza por viabilidad,
+    y acepta pedidos durante el descanso.
     """
 
     def __init__(self, world):
@@ -467,20 +311,21 @@ class HardStrategy(BaseStrategy):
         self.last_climate_mult: float = 1.0
         self.debug: bool = getattr(world, 'debug', False)
 
-        # Sistema predictivo de descanso - AUMENTADO
+        # Descanso
         self.stamina_reserve: int = 20
-        self.rest_start_threshold: int = 35  # Antes: 25 - descansa antes
-        self.rest_target: int = 80  # Antes: 70 - recupera más
-        self.optimal_stamina_range: Tuple[int, int] = (50, 90)  # Antes: (40, 85)
+        self.rest_target: int = 55
+        self.optimal_stamina_range: Tuple[int, int] = (50, 90)
         self.is_resting: bool = False
 
-    def _predict_stamina_cost(self, ai: "AIPlayer", distance: float) -> float:
-        """Predice cuánta stamina costará recorrer una distancia"""
-        base_cost = distance * 1.2
+        # Control de descanso forzado
+        self._last_forced_rest_time: float = -999.0
+        self._forced_rest_interval: float = 4.0  # evita flapping
+        self._pending_forced_rest_cost: Optional[float] = None
 
+    def _predict_stamina_cost(self, ai: "AIPlayer", distance: float) -> float:
+        base_cost = distance * 1.2
         if ai.total_weight > 3:
             base_cost *= (1.0 + (ai.total_weight - 3) * 0.1)
-
         if hasattr(self.world, 'weather_system') and self.world.weather_system:
             try:
                 speed_mult = self.world.weather_system._get_interpolated_speed_multiplier()
@@ -488,144 +333,29 @@ class HardStrategy(BaseStrategy):
                     base_cost *= (1.5 - speed_mult * 0.5)
             except Exception:
                 pass
-
         return base_cost
 
     def _calculate_rest_target(self, ai: "AIPlayer", upcoming_task_cost: float = 0) -> int:
-        """Calcula cuánta stamina debe recuperar según la tarea próxima"""
         if upcoming_task_cost > 0:
-            # Recuperar suficiente para la tarea + margen generoso
-            target = int(upcoming_task_cost * 1.3 + self.stamina_reserve)  # Antes: + 10
-            return min(target, 95)  # Antes: optimal_range[1]
+            target = int(upcoming_task_cost * 0.6 + self.stamina_reserve + 8)
+            return max(40, min(target, 90))
         else:
-            # Sin tarea específica, recuperar bastante
-            return 75  # Antes: optimal_range[0] (50)
+            return 75
 
-    def decide(self, ai: "AIPlayer", game) -> Optional[Tuple[int, int]]:
-        now = game.total_play_time
+    def _force_rest(self, ai: "AIPlayer", now: float, reference_cost: float = 0.0):
+        if (now - self._last_forced_rest_time) < self._forced_rest_interval:
+            return
+        self._last_forced_rest_time = now
 
-        # Debug periódico
-        if self.debug and int(now) % 5 == 0 and int(now) != getattr(self, '_last_debug_second', -1):
-            self._last_debug_second = int(now)
-            order_str = ai.inventory.orders[0].id[:8] if ai.inventory.orders else "Sin pedido"
-            rest_status = "[REST]" if self.is_resting else ""
-            print(f"[HARD] {rest_status} t={int(now)}s Pos=({ai.x:.1f},{ai.y:.1f}) "
-                  f"Stamina={ai.stamina:.1f} Pedido={order_str} Earnings=${ai.earnings:.0f}")
+        self.is_resting = True
+        if hasattr(ai, "enter_rest"):
+            ai.enter_rest(reset_timer=True)
 
-        # Sistema de descanso predictivo
-        upcoming_distance = 0
-        if ai.current_target:
-            upcoming_distance = abs(ai.x - ai.current_target[0]) + abs(ai.y - ai.current_target[1])
-
-        predicted_cost = self._predict_stamina_cost(ai, upcoming_distance)
-
-        if self.is_resting:
-            rest_target = self._calculate_rest_target(ai, predicted_cost)
-
-            if ai.stamina >= rest_target:
-                self.is_resting = False
-                if self.debug:
-                    print(f"[HARD] Descanso completo: {ai.stamina:.1f}/{rest_target}")
-            else:
-                if self.debug and int(now * 2) % 5 == 0:
-                    remaining = rest_target - ai.stamina
-                    eta = remaining / 5.0
-                    print(f"[HARD] Descansando... {ai.stamina:.1f}/{rest_target} (ETA: {eta:.1f}s)")
-                ai.current_target = None
-                self.planner._path = []
-                self.planner._goal = None
-                return (0, 0)
-        else:
-            should_rest = False
-
-            if ai.stamina < self.rest_start_threshold:
-                should_rest = True
-                reason = f"stamina baja ({ai.stamina:.1f})"
-
-            elif ai.inventory.orders and predicted_cost > 0:
-                min_needed = predicted_cost * 0.8 + self.stamina_reserve
-                if ai.stamina < min_needed:
-                    should_rest = True
-                    reason = f"insuficiente para pedido (necesita {min_needed:.1f})"
-
-            elif not ai.inventory.orders and ai.stamina < self.optimal_stamina_range[0]:
-                should_rest = True
-                reason = f"bajo rango optimo ({ai.stamina:.1f} < {self.optimal_stamina_range[0]})"
-
-            if should_rest:
-                self.is_resting = True
-                rest_target = self._calculate_rest_target(ai, predicted_cost)
-                if self.debug:
-                    print(f"[HARD] Empezando descanso ({reason}), objetivo={rest_target}")
-                ai.current_target = None
-                self.planner._path = []
-                self.planner._goal = None
-                return (0, 0)
-
-        # Detectar si necesita replanificar
-        climate_changed = self._climate_changed_significantly(game)
-        time_to_replan = (now - self.last_replan) > self.replan_interval
-
-        if (time_to_replan or climate_changed) and not ai.inventory.orders and not self.is_resting:
-            if self.debug:
-                print(f"[HARD] Replanificando...")
-            self._plan_order_sequence(ai, game)
-            self.last_replan = now
-
-        # Si tiene pedido activo, usar A* para navegar
-        if ai.inventory.orders:
-            order = ai.inventory.orders[0]
-            target = order.dropoff_pos if order.status == "picked_up" else order.pickup_pos
-
-            if ai.current_target != target:
-                ai.current_target = target
-                self.planner.set_goal(target)
-                if self.debug:
-                    print(f"[HARD] Nuevo target: {target} para {order.id[:8]}")
-
-            if not self.is_resting:
-                return self.planner.next_step(ai)
-            else:
-                return (0, 0)
-
-        # Si no tiene pedido pero hay secuencia planeada, tomar el siguiente
-        if self.planned_sequence and game.pending_orders and not self.is_resting:
-            next_id = self.planned_sequence[0]
-            order = next((o for o in game.pending_orders if o.id == next_id), None)
-
-            if order:
-                if self._is_order_viable(ai, order):
-                    if ai.try_accept_order_with_delay(order, now):
-                        order.start_timer(now)
-                        order.status = "in_progress"
-                        game.pending_orders.remove(order)
-
-                        if hasattr(game.orders_manager, 'pending_orders'):
-                            game.orders_manager.pending_orders = game.pending_orders
-
-                        self.planned_sequence.pop(0)
-                        ai.current_target = order.pickup_pos
-                        self.planner.set_goal(order.pickup_pos)
-
-                        if self.debug:
-                            print(f"[HARD] Tomo pedido planeado {order.id[:8]}")
-
-                        return self.planner.next_step(ai)
-                else:
-                    self.planned_sequence.clear()
-
-        # Si no hay secuencia, planificar una nueva
-        if not ai.inventory.orders and game.pending_orders and not self.is_resting:
-            self._plan_order_sequence(ai, game)
-
-        # CRITICO: Sin nada que hacer, limpiar y quedarse quieto
-        ai.current_target = None
-        self.planner._path = []
-        self.planner._goal = None
-        return (0, 0)
+        self.rest_target = self._calculate_rest_target(ai, reference_cost)
+        if self.debug:
+            print(f"[HARD] 💤 Descanso forzado: objetivo={self.rest_target} (ref_cost={reference_cost:.1f})")
 
     def _is_order_viable(self, ai: "AIPlayer", order) -> bool:
-        """Verifica si un pedido sigue siendo viable con predicción de stamina"""
         new_weight = ai.inventory.current_weight + float(getattr(order, 'weight', 0.0))
         if new_weight > ai.inventory.max_weight:
             return False
@@ -640,23 +370,129 @@ class HardStrategy(BaseStrategy):
 
         predicted_cost = self._predict_stamina_cost(ai, total_distance)
 
-        # Requiere 70% del costo + reserva (antes: 60%)
-        min_stamina_needed = predicted_cost * 0.7 + self.stamina_reserve
+        # Umbral menos estricto pero suficiente
+        min_stamina_needed = predicted_cost * 0.6 + self.stamina_reserve
 
         if ai.stamina < min_stamina_needed:
             if self.debug:
                 print(f"[HARD] Pedido {order.id[:8]} rechazado: stamina={ai.stamina:.1f}, "
                       f"min_necesario={min_stamina_needed:.1f} (costo={predicted_cost:.1f})")
+            # Señal para forzar descanso en decide()
+            self._pending_forced_rest_cost = predicted_cost
             return False
 
         return True
 
+    def decide(self, ai: "AIPlayer", game) -> Optional[Tuple[int, int]]:
+        now = game.total_play_time
+        prev_resting = getattr(self, "_prev_resting", False)
+
+        # Si hubo rechazo recientemente, fuerza descanso aquí mismo
+        if (not self.is_resting) and (self._pending_forced_rest_cost is not None):
+            self._force_rest(ai, now, self._pending_forced_rest_cost)
+            self._pending_forced_rest_cost = None
+
+        # Entrada a descanso si está exhausto
+        if not self.is_resting and (ai.stamina <= 0 or not ai.can_move()):
+            self._force_rest(ai, now, 0.0)
+            self._prev_resting = True
+
+        # Mientras descansa: puede aceptar pedido, pero no moverse
+        if self.is_resting:
+            if not ai.inventory.orders and game.pending_orders:
+                candidates = sorted(
+                    game.pending_orders,
+                    key=lambda o: abs(ai.x - o.pickup_pos[0]) + abs(ai.y - o.pickup_pos[1])
+                )
+                for cand in candidates:
+                    new_weight = ai.inventory.current_weight + float(getattr(cand, 'weight', 0.0))
+                    if new_weight > ai.inventory.max_weight:
+                        continue
+                    if ai.try_accept_order_with_delay(cand, now):
+                        cand.start_timer(now)
+                        cand.status = "in_progress"
+                        game.pending_orders.remove(cand)
+                        if hasattr(game.orders_manager, 'pending_orders'):
+                            game.orders_manager.pending_orders = game.pending_orders
+                        ai.current_target = cand.pickup_pos
+                        self.planner.set_goal(cand.pickup_pos)
+                        if self.debug:
+                            print(f"[HARD] Aceptó {cand.id[:8]} (mientras descansa)")
+                        break
+
+            if ai.stamina >= self.rest_target:
+                self.is_resting = False
+            else:
+                self._prev_resting = True
+                return (0, 0)
+
+        # Replan inmediato al salir del descanso
+        if prev_resting and not self.is_resting:
+            if ai.current_target and hasattr(self.planner, "plan"):
+                try:
+                    sx, sy = int(ai.x + 0.5), int(ai.y + 0.5)
+                    tx, ty = int(ai.current_target[0]), int(ai.current_target[1])
+                    self.planner.plan((sx, sy), (tx, ty))
+                except Exception:
+                    pass
+
+        climate_changed = self._climate_changed_significantly(game)
+        time_to_replan = (now - self.last_replan) > self.replan_interval
+
+        if (time_to_replan or climate_changed) and not ai.inventory.orders and not self.is_resting:
+            if self.debug:
+                print(f"[HARD] Replanificando...")
+            self._plan_order_sequence(ai, game)
+            self.last_replan = now
+
+        # Pedido activo: seguir con A*
+        if ai.inventory.orders:
+            order = ai.inventory.orders[0]
+            target = order.dropoff_pos if order.status == "picked_up" else order.pickup_pos
+
+            if ai.current_target != target:
+                ai.current_target = target
+                self.planner.set_goal(target)
+                if self.debug:
+                    print(f"[HARD] Nuevo target: {target} para {order.id[:8]}")
+
+            return self.planner.next_step(ai)
+
+        # Sin pedido pero hay secuencia
+        if self.planned_sequence and game.pending_orders and not self.is_resting:
+            next_id = self.planned_sequence[0]
+            order = next((o for o in game.pending_orders if o.id == next_id), None)
+
+            if order:
+                new_weight = ai.inventory.current_weight + float(getattr(order, 'weight', 0.0))
+                if new_weight <= ai.inventory.max_weight:
+                    if ai.try_accept_order_with_delay(order, now):
+                        order.start_timer(now)
+                        order.status = "in_progress"
+                        game.pending_orders.remove(order)
+                        if hasattr(game.orders_manager, 'pending_orders'):
+                            game.orders_manager.pending_orders = game.pending_orders
+                        self.planned_sequence.pop(0)
+                        ai.current_target = order.pickup_pos
+                        self.planner.set_goal(order.pickup_pos)
+                        if self.debug:
+                            print(f"[HARD] Tomó pedido planeado {order.id[:8]}")
+                        return self.planner.next_step(ai)
+                else:
+                    self.planned_sequence.clear()
+
+        # Sin nada, intentar planificar
+        if not ai.inventory.orders and game.pending_orders and not self.is_resting:
+            self._plan_order_sequence(ai, game)
+
+        # Idle
+        ai.current_target = None
+        self.planner._path = []
+        self.planner._goal = None
+        return (0, 0)
+
     def _plan_order_sequence(self, ai: "AIPlayer", game):
-        """
-        Planifica la mejor secuencia de 2-3 pedidos usando A*.
-        Considera rutas reales, no distancias Manhattan.
-        """
-        if not game.pending_orders or len(game.pending_orders) < 1:
+        if not game.pending_orders:
             self.planned_sequence = []
             return
 
@@ -671,7 +507,6 @@ class HardStrategy(BaseStrategy):
         for o1 in candidates:
             if not self._is_order_viable(ai, o1):
                 continue
-
             value = self._evaluate_sequence(ai, [o1], game)
             if value > best_value:
                 best_sequence = [o1.id]
@@ -681,13 +516,14 @@ class HardStrategy(BaseStrategy):
             for i, o1 in enumerate(candidates):
                 if not self._is_order_viable(ai, o1):
                     continue
-
                 for o2 in candidates[i + 1:]:
                     combined_weight = (
-                            float(getattr(o1, 'weight', 0.0)) +
-                            float(getattr(o2, 'weight', 0.0))
+                        float(getattr(o1, 'weight', 0.0)) +
+                        float(getattr(o2, 'weight', 0.0))
                     )
                     if combined_weight > ai.inventory.max_weight:
+                        continue
+                    if not self._is_order_viable(ai, o2):
                         continue
 
                     value = self._evaluate_sequence(ai, [o1, o2], game)
@@ -704,10 +540,6 @@ class HardStrategy(BaseStrategy):
             print(f"[HARD] Secuencia planeada: {[oid[:8] for oid in best_sequence]} (value={best_value:.1f})")
 
     def _evaluate_sequence(self, ai: "AIPlayer", orders, game) -> float:
-        """
-        Calcula el valor de una secuencia de pedidos.
-        Usa A* para obtener distancias reales.
-        """
         total_payout = sum(float(getattr(o, 'payout', getattr(o, 'payment', 0.0)))
                            for o in orders)
         total_distance = 0.0
@@ -718,18 +550,14 @@ class HardStrategy(BaseStrategy):
         for order in orders:
             self.planner.replan(current_pos, order.pickup_pos)
             path_len_pickup = len(self.planner._path) if self.planner._path else 999
-
             if path_len_pickup >= 999:
                 return float("-inf")
-
             total_distance += path_len_pickup
 
             self.planner.replan(order.pickup_pos, order.dropoff_pos)
             path_len_delivery = len(self.planner._path) if self.planner._path else 999
-
             if path_len_delivery >= 999:
                 return float("-inf")
-
             total_distance += path_len_delivery
 
             speed = ai.calculate_effective_speed(game.city) if hasattr(game, 'city') else 3.0
@@ -757,11 +585,11 @@ class HardStrategy(BaseStrategy):
         priority_bonus = sum(o.priority * 50 for o in orders)
 
         value = (
-                total_payout
-                + priority_bonus
-                - (total_distance * 0.5)
-                - time_penalty
-                - stamina_penalty
+            total_payout
+            + priority_bonus
+            - (total_distance * 0.5)
+            - time_penalty
+            - stamina_penalty
         )
 
         if self.debug:
@@ -771,7 +599,6 @@ class HardStrategy(BaseStrategy):
         return value
 
     def _climate_changed_significantly(self, game) -> bool:
-        """Detecta cambios drásticos de clima que requieren replanificación"""
         if not hasattr(game, 'weather_system') or not game.weather_system:
             return False
 

@@ -90,7 +90,7 @@ class AIPlayer(Player):
             self.max_stamina = 100.0
 
         # Cooldown para recuperación de stamina
-        self.stamina_recovery_cooldown = 0.5
+        self.stamina_recovery_cooldown = 1.5
         self.time_since_stopped = 0.0
 
     def _build_default_strategy(self, difficulty: str) -> BaseStrategy:
@@ -373,8 +373,7 @@ class AIPlayer(Player):
 
     def _apply_step(self, dx: int, dy: int, game):
         """
-        VERSIÓN CORREGIDA: Aplica movimiento con evitación suave y consume stamina.
-        IA DIFÍCIL: Mira hacia el path A*, no hacia el vector ajustado.
+        Aplica movimiento con evitación; si se descansa, no se mueve ni consume stamina por distancia.
         """
         city = getattr(game, "city", None)
         if not city:
@@ -382,12 +381,20 @@ class AIPlayer(Player):
 
         delta_time = getattr(game, '_last_delta_time', 1 / 60.0)
 
-        # Agregar posición actual al historial
+        # Si estrategia indica descanso, no mover ni anti-atasco
+        if getattr(self.strategy, "is_resting", False):
+            # NO resetear cooldown cada frame
+            self.current_velocity = [0.0, 0.0]
+            self.is_moving = False
+            self._current_step = (0, 0)
+            return
+
+        # Historial de posición
         self.position_history.append((self.x, self.y))
         if len(self.position_history) > self.max_position_history:
             self.position_history.pop(0)
 
-        # Detectar atascamiento
+        # Anti-atasco
         if self._detect_stuck():
             self.stuck_counter += 1
             if self.stuck_counter > 3:
@@ -397,21 +404,19 @@ class AIPlayer(Player):
             self.stuck_counter = 0
             self.last_valid_position = (self.x, self.y)
 
-        # Si no hay movimiento, decelerar
+        # Sin paso, amortiguar a cero y salir
         if dx == 0 and dy == 0:
             self.current_velocity[0] *= (1.0 - delta_time * self.velocity_smoothing)
             self.current_velocity[1] *= (1.0 - delta_time * self.velocity_smoothing)
-
             if abs(self.current_velocity[0]) < 0.01:
-                self.current_velocity[0] = 0
+                self.current_velocity[0] = 0.0
             if abs(self.current_velocity[1]) < 0.01:
-                self.current_velocity[1] = 0
-
+                self.current_velocity[1] = 0.0
             self._current_step = (0, 0)
-            self.is_moving = False  # Ya está en línea 402 ✅
+            self.is_moving = False
             return
 
-        # Guardar posición previa para calcular distancia real
+        # Guardar posición previa
         prev_x, prev_y = self.x, self.y
 
         # Normalizar dirección
@@ -422,12 +427,10 @@ class AIPlayer(Player):
         else:
             target_dx, target_dy = 0.0, 0.0
 
-        # Aplicar evitación de paredes
-        adjusted_dx, adjusted_dy = self._calculate_wall_avoidance_vector(
-            city, target_dx, target_dy
-        )
+        # Evitación de paredes
+        adjusted_dx, adjusted_dy = self._calculate_wall_avoidance_vector(city, target_dx, target_dy)
 
-        # CRÍTICO: IA difícil mira hacia el SIGUIENTE NODO del path, no hacia el vector ajustado
+        # Ángulo objetivo
         if self.difficulty == "hard" and hasattr(self, 'strategy') and hasattr(self.strategy, 'planner'):
             planner = self.strategy.planner
             if planner._path and len(planner._path) > 0:
@@ -442,43 +445,35 @@ class AIPlayer(Player):
             else:
                 self.target_angle = math.atan2(adjusted_dy, adjusted_dx)
         else:
-            # Otras IAs usan vector ajustado
             self.target_angle = math.atan2(adjusted_dy, adjusted_dx)
 
-        # Suavizar rotación
+        # Rotación suave y sprite
         self._smooth_angle_to_target(delta_time)
-
-        # Actualizar dirección del sprite
         self._update_sprite_direction()
 
-        # CRÍTICO: Calcular velocidad efectiva COMPLETA (con TODOS los multiplicadores)
+        # Velocidad efectiva y proximidad a paredes
         base_effective_speed = self.calculate_effective_speed(city)
-
-        # Calcular multiplicador de velocidad por proximidad a paredes
         speed_mult = self._calculate_speed_multiplier(city)
 
-        # Suavizar velocidad (aceleración/desaceleración)
+        # Suavizado de velocidad
         target_vel_x = adjusted_dx * speed_mult * base_effective_speed
         target_vel_y = adjusted_dy * speed_mult * base_effective_speed
-
         smoothing_factor = min(1.0, delta_time * self.velocity_smoothing)
         self.current_velocity[0] += (target_vel_x - self.current_velocity[0]) * smoothing_factor
         self.current_velocity[1] += (target_vel_y - self.current_velocity[1]) * smoothing_factor
 
-        # Aplicar movimiento usando velocidad normalizada
+        # Aplicar movimiento
         vel_mag = math.sqrt(self.current_velocity[0] ** 2 + self.current_velocity[1] ** 2)
         if vel_mag > 0.01:
             norm_vel_x = self.current_velocity[0] / vel_mag
             norm_vel_y = self.current_velocity[1] / vel_mag
             self.move(norm_vel_x, norm_vel_y, delta_time, city)
-            self.is_moving = True  # CRÍTICO: Marcar que SÍ se está moviendo
+            self.is_moving = True
         else:
-            self.is_moving = False  # CRÍTICO: Marcar que NO se está moviendo
+            self.is_moving = False
 
-        # CRÍTICO: Calcular distancia real movida
+        # Distancia real movida y consumo stamina
         distance_moved = math.sqrt((self.x - prev_x) ** 2 + (self.y - prev_y) ** 2)
-
-        # CRÍTICO: Consumir stamina
         self.consume_stamina_for_movement(delta_time, distance_moved)
 
         self._current_step = (dx, dy)
@@ -629,26 +624,25 @@ class AIPlayer(Player):
 
     def update(self, delta_time: float):
         """Override con timestamp para renderer"""
-        super().update(delta_time)  # Esto llama a Player.update() que maneja la recuperación
-
+        super().update(delta_time)  # Maneja recuperación
         self._last_update_time = time.time()
 
-        # Aplicar efectos del clima
+        # Aplicar clima
         if self.world and hasattr(self.world, 'weather_system') and self.world.weather_system:
             weather_info = self.world.weather_system.get_weather_info()
             self.weather_speed_multiplier = weather_info.get('speed_multiplier', 1.0)
             self.weather_stamina_drain = weather_info.get('stamina_drain', 0.0)
+
 
     def update_with_strategy(self, game):
         """Actualizar usando la estrategia asignada"""
         if not self.strategy:
             return
 
-        if not self.can_move():
-            self._current_step = (0, 0)
-            return
-
-        # Asegurar que la estrategia tenga acceso al mundo actualizado
+        # IMPORTANTE: NO salimos si no puede moverse.
+        # Queremos que la estrategia corra incluso exhausto para:
+        # - mantener estado de descanso
+        # - aceptar nuevos pedidos mientras descansa
         try:
             if hasattr(self.strategy, "world"):
                 self.strategy.world.city = getattr(game, "city", None)
@@ -656,7 +650,7 @@ class AIPlayer(Player):
         except Exception:
             pass
 
-        # Decidir siguiente paso
+        # Decidir
         try:
             step = self.strategy.decide(self, game)
         except Exception as e:
@@ -674,17 +668,10 @@ class AIPlayer(Player):
     def update_ai(self, delta_time: float, game):
         """
         Actualización optimizada con cooldown.
-        VERSIÓN FINAL con todos los sistemas integrados.
         """
         game._last_delta_time = delta_time
-
-        # 1. Actualizar física (stamina, estado, etc.)
         self.update(delta_time)
-
-        # 2. Actualizar timers de pedidos
         self.update_order_timers(game.total_play_time)
-
-        # 3. Tomar decisiones con cooldown
         self._decision_cooldown -= delta_time
         if self._decision_cooldown <= 0:
             self._decision_cooldown = self._decision_interval
@@ -726,3 +713,12 @@ class AIPlayer(Player):
             return True
 
         return False
+
+    def enter_rest(self, reset_timer: bool = False):
+        """Detener movimiento total durante descanso sin romper el cooldown en frames posteriores."""
+        self.current_velocity = [0.0, 0.0]
+        self.is_moving = False
+        self._current_step = (0, 0)
+        self.current_target = None
+        if reset_timer:
+            self.time_since_stopped = 0.0
