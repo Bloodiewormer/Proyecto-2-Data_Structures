@@ -686,8 +686,6 @@ class AIPlayer(Player):
         return self.current_direction
 
     def try_accept_order_with_delay(self, order, current_time: float) -> bool:
-        print(f"[LLAMADA] try_accept_order_with_delay: order={order.id}, time={current_time:.2f}")
-
         cooldown = 2.0
         if self.world and hasattr(self.world, 'app_config'):
             ai_config = self.world.app_config.get('ai', {})
