@@ -11,6 +11,8 @@ class SaveFlow:
         self.debug = bool(debug)
         self.save_manager = SaveManager(app_config)
 
+    # En la clase SaveFlow, modificar save_game():
+
     def save_game(self, game) -> bool:
         try:
             player_data = self.save_manager.serialize_player(game.player)
@@ -20,13 +22,16 @@ class SaveFlow:
             pending_orders_payload = [order.to_dict() for order in game.orders_manager.pending_orders]
             canceled_orders_payload = list(getattr(game.orders_manager, "canceled_orders", []))
 
-            # persistir timer para evitar game over al cargar
             timer_payload = {
                 "total_play_time": float(getattr(game, "total_play_time", 0.0)),
                 "time_remaining": float(
                     getattr(game, "time_remaining", float(getattr(game, "time_limit", 0.0)))
                 ),
             }
+
+            # =====  Serializar IA =====
+            ai_data = self._serialize_ai_players(game)
+            # ================================
 
             save_data = {
                 "player": player_data,
@@ -38,12 +43,52 @@ class SaveFlow:
                 },
                 "game_stats": getattr(game, "game_stats", {}),
                 "timer": timer_payload,
+                "ai_players": ai_data,  # ← NUEVO
             }
             return self.save_manager.save_to_file(save_data)
         except Exception as e:
             print(f"Error al guardar partida: {e}")
-            import traceback; traceback.print_exc()
+            import traceback;
+            traceback.print_exc()
             return False
+
+    def _serialize_ai_players(self, game) -> dict:
+        """
+        Serializa SOLO los datos esenciales de la IA, sin tocar su estrategia/planner.
+        """
+        if not hasattr(game, 'ai_players') or not game.ai_players:
+            return {"enabled": False, "players": []}
+
+        players_data = []
+        for ai in game.ai_players:
+            # Serializar inventario de la IA
+            ai_inventory = []
+            if hasattr(ai, 'inventory') and ai.inventory.orders:
+                for order in ai.inventory.orders:
+                    ai_inventory.append(order.to_dict())
+
+            # Datos básicos de la IA
+            ai_data = {
+                "x": float(ai.x),
+                "y": float(ai.y),
+                "angle": float(ai.angle),
+                "difficulty": str(ai.difficulty),
+                "stamina": float(ai.stamina),
+                "reputation": float(ai.reputation),
+                "earnings": float(ai.earnings),
+                "total_weight": float(ai.total_weight),
+                "deliveries_completed": int(ai.deliveries_completed),
+                "orders_cancelled": int(ai.orders_cancelled),
+                "inventory": ai_inventory,
+
+            }
+            players_data.append(ai_data)
+
+        return {
+            "enabled": True,
+            "difficulty": game.ai_difficulty,
+            "players": players_data
+        }
 
     def load_game(self, game) -> bool:
         try:
@@ -65,7 +110,7 @@ class SaveFlow:
                 except Exception:
                     pass
 
-            # restaurar timer primero
+            # restaurar timer
             timer_blob = save_data.get("timer") or {}
             try:
                 tp = float(timer_blob.get("total_play_time", 0.0))
@@ -115,12 +160,15 @@ class SaveFlow:
             except Exception:
                 pass
 
-            # reconstruir puertas usando la misma regla que orders_manager:
-            # puerta en el tile de edificio "B" más cercano a pickup/dropoff
+            # reconstruir puertas
             try:
                 self._rebuild_doors_for_orders(game)
             except Exception:
                 pass
+
+            # ===== Restaurar IA =====
+            self._restore_ai_players(game, save_data)
+            # ================================
 
             game.state_manager.change_state(GameState.PLAYING)
             game.show_notification("Partida cargada")
@@ -128,10 +176,97 @@ class SaveFlow:
 
         except Exception as e:
             print(f"Error al cargar partida: {e}")
-            import traceback; traceback.print_exc()
+            import traceback;
+            traceback.print_exc()
             game.show_notification("Error al cargar partida")
             game.state_manager.change_state(GameState.MAIN_MENU)
             return False
+
+    def _restore_ai_players(self, game, save_data: dict):
+        """
+        Restaura jugadores IA de forma segura, RECREANDO sus estrategias desde cero.
+        """
+        ai_data = save_data.get("ai_players", {})
+
+        if not ai_data or not ai_data.get("enabled", False):
+            # Limpiar cualquier IA existente
+            if hasattr(game, 'ai_players'):
+                game.ai_players.clear()
+            game.ai_enabled = False
+            return
+
+        # Limpiar IA existentes
+        if hasattr(game, 'ai_players'):
+            game.ai_players.clear()
+        else:
+            game.ai_players = []
+
+        # Restaurar configuración global
+        game.ai_enabled = True
+        game.ai_difficulty = ai_data.get("difficulty", "easy")
+
+        # Restaurar cada jugador IA
+        from game.entities.ai_player import AIPlayer
+        from game.IA.strategies.strategies import EasyStrategy, MediumStrategy, HardStrategy
+
+        for ai_save in ai_data.get("players", []):
+            try:
+                difficulty = str(ai_save.get("difficulty", "easy"))
+
+                # Crear nueva estrategia desde cero (CRÍTICO para evitar bugs)
+                if difficulty == "easy":
+                    strategy = EasyStrategy(game)
+                elif difficulty == "medium":
+                    strategy = MediumStrategy(game)
+                elif difficulty == "hard":
+                    strategy = HardStrategy(game)
+                else:
+                    strategy = EasyStrategy(game)
+
+                # Crear nueva IA con estrategia fresca
+                ai = AIPlayer(
+                    start_x=float(ai_save.get("x", 1.0)),
+                    start_y=float(ai_save.get("y", 1.0)),
+                    config=game.app_config.get("player", {}),
+                    difficulty=difficulty,
+                    world=game,
+                    strategy=strategy  # ← Estrategia nueva
+                )
+
+                # Restaurar solo datos de estado
+                ai.angle = float(ai_save.get("angle", 0.0))
+                ai.stamina = float(ai_save.get("stamina", 100.0))
+                ai.reputation = float(ai_save.get("reputation", 70.0))
+                ai.earnings = float(ai_save.get("earnings", 0.0))
+                ai.total_weight = float(ai_save.get("total_weight", 0.0))
+                ai.deliveries_completed = int(ai_save.get("deliveries_completed", 0))
+                ai.orders_cancelled = int(ai_save.get("orders_cancelled", 0))
+
+                # Restaurar inventario
+                ai.inventory.orders = []
+                for order_dict in ai_save.get("inventory", []):
+                    try:
+                        order = Order.from_dict(order_dict)
+                        ai.inventory.orders.append(order)
+                    except Exception as e:
+                        print(f"Error restaurando pedido de IA: {e}")
+
+                # Actualizar peso del inventario
+                ai.set_inventory_weight(ai.inventory.current_weight)
+
+
+                ai.current_target = None
+
+                game.ai_players.append(ai)
+
+                if game.debug:
+                    print(f"[SaveFlow] IA restaurada: {difficulty} en ({ai.x:.1f},{ai.y:.1f}), "
+                          f"${ai.earnings:.0f}, {len(ai.inventory.orders)} pedidos")
+
+            except Exception as e:
+                print(f"Error restaurando jugador IA: {e}")
+                import traceback
+                traceback.print_exc()
 
     @staticmethod
     def _place_door_for_world_pos(pos: Tuple[int, int], renderer, city):
