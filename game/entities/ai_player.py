@@ -686,8 +686,7 @@ class AIPlayer(Player):
         return self.current_direction
 
     def try_accept_order_with_delay(self, order, current_time: float) -> bool:
-        if not hasattr(self, '_last_order_accept_time'):
-            self._last_order_accept_time = current_time  # CAMBIAR: usar current_time en lugar de -999.0
+        print(f"[LLAMADA] try_accept_order_with_delay: order={order.id}, time={current_time:.2f}")
 
         cooldown = 2.0
         if self.world and hasattr(self.world, 'app_config'):
@@ -695,18 +694,24 @@ class AIPlayer(Player):
             cooldowns = ai_config.get('order_accept_cooldown', {})
             cooldown = float(cooldowns.get(self.difficulty, 2.0))
 
-        time_diff = current_time - self._last_order_accept_time
+        # Verificar si el pedido tiene un tiempo de liberación
+        order_release_time = getattr(order, 'release_timestamp', None)
+        if order_release_time is None:
+            # Si no tiene timestamp, asignarlo ahora (primera vez que se ve este pedido)
+            order.release_timestamp = current_time
+            order_release_time = current_time
+
+        time_since_release = current_time - order_release_time
 
         if self.debug:
             print(f"[AI-{self.difficulty}] Intentando aceptar: current={current_time:.2f}, "
-                  f"last={self._last_order_accept_time:.2f}, diff={time_diff:.2f}, "
-                  f"cooldown={cooldown:.2f}, rechaza={time_diff < cooldown}")
+                  f"release={order_release_time:.2f}, time_since_release={time_since_release:.2f}, "
+                  f"cooldown={cooldown:.2f}, rechaza={time_since_release < cooldown}")
 
-        if time_diff < cooldown:
+        if time_since_release < cooldown:
             return False
 
         if self.add_order_to_inventory(order):
-            self._last_order_accept_time = current_time
             if self.debug:
                 print(f"[AI-{self.difficulty}] ACEPTADO en t={current_time:.2f}")
             return True

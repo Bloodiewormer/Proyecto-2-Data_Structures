@@ -1,5 +1,5 @@
 {
-    "debug": true,
+    "debug": false,
     "display": {
         "width": 800,
         "height": 600,
@@ -16,7 +16,7 @@
         "time_limit_minutes": 6,
         "initial_reputation": 70,
         "initial_stamina": 100,
-        "goal_earnings": 1100,
+        "goal_earnings": 550,
         "order_release_seconds": 40,
         "stamina_recovery_cooldown": 0.5
     },

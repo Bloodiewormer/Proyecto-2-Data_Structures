@@ -204,9 +204,11 @@ class OrdersManager:
         released = 0
         while self._orders_queue and self._orders_queue[0][0] <= float(total_play_time):
             _, order = self._orders_queue.pop(0)
-            # No reinsertar cancelados por seguridad
             if order.id in self.canceled_orders:
                 continue
+            # Marcar timestamp de liberación
+            order.release_timestamp = total_play_time
+
             self.pending_orders.append(order)
             released += 1
             notify(f"Nuevo pedido disponible: {order.id}")
