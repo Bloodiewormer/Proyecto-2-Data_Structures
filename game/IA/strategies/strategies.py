@@ -353,7 +353,7 @@ class HardStrategy(BaseStrategy):
 
         self.rest_target = self._calculate_rest_target(ai, reference_cost)
         if self.debug:
-            print(f"[HARD] 💤 Descanso forzado: objetivo={self.rest_target} (ref_cost={reference_cost:.1f})")
+            print(f"[HARD]  Descanso forzado: objetivo={self.rest_target} (ref_cost={reference_cost:.1f})")
 
     def _is_order_viable(self, ai: "AIPlayer", order) -> bool:
         new_weight = ai.inventory.current_weight + float(getattr(order, 'weight', 0.0))

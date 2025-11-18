@@ -92,7 +92,9 @@ class AIPlayer(Player):
         # Cooldown para recuperación de stamina
         self.stamina_recovery_cooldown = 1.5
         self.time_since_stopped = 0.0
-        self._last_order_accept_time = -999.0
+
+        # AGREGAR ESTA LÍNEA:
+        self.debug = getattr(world, 'debug', False) if world else False
 
     def _build_default_strategy(self, difficulty: str) -> BaseStrategy:
         """Construye la estrategia según dificultad"""
@@ -149,14 +151,6 @@ class AIPlayer(Player):
             angle_deg += 360
         while angle_deg >= 360:
             angle_deg -= 360
-
-        # DEBUG TEMPORAL: Ver qué ángulos llegan
-        if self.debug and hasattr(self, '_last_sprite_debug'):
-            if abs(angle_deg - self._last_sprite_debug) > 10:
-                print(f"[AI-{self.difficulty}] Angulo: {angle_deg:.1f} grados")
-                self._last_sprite_debug = angle_deg
-        elif not hasattr(self, '_last_sprite_debug'):
-            self._last_sprite_debug = angle_deg
 
         # Sistema de coordenadas: Y crece hacia abajo
         # atan2(dy, dx): 0 = derecha, 90 = abajo, -90 = arriba, 180 = izquierda
@@ -693,7 +687,7 @@ class AIPlayer(Player):
 
     def try_accept_order_with_delay(self, order, current_time: float) -> bool:
         if not hasattr(self, '_last_order_accept_time'):
-            self._last_order_accept_time = -999.0  # Valor muy negativo
+            self._last_order_accept_time = current_time  # CAMBIAR: usar current_time en lugar de -999.0
 
         cooldown = 2.0
         if self.world and hasattr(self.world, 'app_config'):
@@ -703,7 +697,6 @@ class AIPlayer(Player):
 
         time_diff = current_time - self._last_order_accept_time
 
-        # AGREGAR ESTE LOG TEMPORAL:
         if self.debug:
             print(f"[AI-{self.difficulty}] Intentando aceptar: current={current_time:.2f}, "
                   f"last={self._last_order_accept_time:.2f}, diff={time_diff:.2f}, "
